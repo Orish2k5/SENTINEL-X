@@ -1,0 +1,70 @@
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+!.env.template
+*.secret
+secrets/
+private_keys/
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Python / virtual environments
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+.python-version.local
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Local databases and runtime data
+*.db
+*.sqlite
+*.sqlite3
+*.log
+logs/
+data/local/
+
+# STM32CubeIDE / embedded build outputs
+Debug/
+Release/
+build/
+*.elf
+*.hex
+*.bin
+*.map
+*.list
+*.o
+*.d
+*.su
+*.cyclo
+*.gcda
+*.gcno
+
+# ESP-IDF build output; keep sdkconfig.defaults if deliberately added
+esp-idf/build/
+managed_components/
+sdkconfig
+sdkconfig.old
+
+# IDE / editor local state
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Temporary files
+*.tmp
+*.bak
+*.orig
+*~
