@@ -6,11 +6,11 @@ import unittest
 import uuid
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "protocol" / "python"))
-from sentinel_x_protocol import (LinkStatus, Policy, PolicyEntry, ProtocolError, build_envelope, build_uart_frame,
+from sentinel_x_protocol import (LinkStatus, Policy, PolicyEntry, ProtocolError, build_envelope, build_uart_frame,  # pyright: ignore[reportMissingImports]
     crc16_ccitt_false, decode_link_status, decode_policy, encode_get_status, encode_link_status, encode_policy,
     encode_set_level, encode_set_output, parse_envelope, parse_uart_frame, validate_command_payload,
     verify_envelope_hmac)
-from sentinel_x_protocol.constants import MSG_CMD, OP_GET_STATUS, OP_SET_LEVEL, OP_SET_OUTPUT, UART_FRAME_AUTH_ENVELOPE, UART_FRAME_LINK_STATUS
+from sentinel_x_protocol.constants import MSG_CMD, OP_GET_STATUS, OP_SET_LEVEL, OP_SET_OUTPUT, UART_FRAME_AUTH_ENVELOPE, UART_FRAME_LINK_STATUS # pyright: ignore[reportMissingImports]
 VECTOR = json.loads((ROOT / "protocol" / "vectors" / "envelope_v1_hmac.json").read_text())
 TEST_KEY = bytes.fromhex(VECTOR["key_hex_test_only"])
 
