@@ -1,6 +1,6 @@
 #ifndef SX_UART_FRAME_H
 #define SX_UART_FRAME_H
-#include <stddef.h>
+#include<stddef.h>
 #include <stdint.h>
 #include "sentinel_x_protocol_v1.h"
 
