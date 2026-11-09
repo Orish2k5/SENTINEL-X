@@ -10,3 +10,4 @@ sx_proto_status_t sx_hmac_sha256_compute(const uint8_t *key, size_t key_len,
 int sx_hmac_sha256_verify_envelope(const uint8_t *key, size_t key_len,
                                    const uint8_t *envelope, size_t envelope_len);
 #endif
+
