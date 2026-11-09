@@ -1,11 +1,15 @@
-# Shared protocol contracts
+# SENTINEL-X Protocol Contracts
 
-This directory is the source of truth for cross-component interfaces. Implementations in STM32, ESP32, Edge Backend and PC App must follow the approved contracts here.
+Master normative contract: `../docs/interface_contracts_v1.0.md`.
 
-- `envelope_v1/` — authenticated message envelope and field definitions.
-- `uart/` — framing, CRC, timeouts and STM32↔ESP32 transport behavior.
-- `mqtt/` — topics, QoS, retained-message rules and message lifecycle.
-- `rest/` — HTTP endpoints, request/response/error schemas and authorization.
-- `schemas/` — machine-readable schemas and shared examples.
+- `envelope_v1/envelope_v1.md`: envelope layout.
+- `envelope_v1/test-vectors/envelope_v1_hmac.json`: public test vector; key is test-only.
+- `uart/uart_framing_v1.md`: UART/CRC rules.
+- `mqtt/mqtt_contract_v1.md`: topics/QoS/ACL principles.
+- `rest/rest_api_v1.md`: REST/RBAC principles.
+- `schemas/error_codes_v1.json`: error code registry.
+- `schemas/command_lifecycle_v1.md`: command/policy lifecycle.
+- `c/sentinel_x_protocol_v1.h`: C constants.
+- `../tools/scripts/verify_vectors.py`: host-side verifier.
 
-Any change to a shared contract requires a PR, review by affected component owners, compatibility notes, and updates to tests. Do not place real secrets in protocol examples. Clearly label any not-yet-approved proposal as `PROPOSED`.
+If any detail conflicts, stop implementation and resolve the master contract through review and a recorded decision.

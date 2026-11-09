@@ -1,0 +1,12 @@
+# EXAMPLE ONLY — adapt to the actual Mosquitto version and deployment.
+# Never commit real credentials. Configure password_file and TLS separately.
+# Broker ACL baseline for ESP32-S3 client sentinel-esp32-SX-001:
+user sentinel-esp32-SX-001
+topic read sentinel/v1/devices/SX-001/cmd
+topic write sentinel/v1/devices/SX-001/ack
+topic write sentinel/v1/devices/SX-001/events
+topic write sentinel/v1/devices/SX-001/status
+topic write sentinel/v1/devices/SX-001/connectivity
+
+# Edge service credentials must be separate and scoped to its required topics.
+# Do not grant the ESP32 permission to publish to the /cmd topic.

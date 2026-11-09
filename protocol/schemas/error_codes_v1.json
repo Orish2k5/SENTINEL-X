@@ -1,0 +1,114 @@
+{
+  "contract": "SENTINEL-X Interface Contracts v1.0",
+  "wire_encoding": "uint16 big-endian",
+  "codes": [
+    {
+      "code": "0x0000",
+      "name": "SUCCESS"
+    },
+    {
+      "code": "0x1001",
+      "name": "FRAME_INVALID"
+    },
+    {
+      "code": "0x1002",
+      "name": "LENGTH_INVALID"
+    },
+    {
+      "code": "0x1003",
+      "name": "CRC_INVALID"
+    },
+    {
+      "code": "0x1004",
+      "name": "VERSION_UNSUPPORTED"
+    },
+    {
+      "code": "0x1005",
+      "name": "DEVICE_ID_MISMATCH"
+    },
+    {
+      "code": "0x1006",
+      "name": "HMAC_INVALID"
+    },
+    {
+      "code": "0x1007",
+      "name": "REPLAY_OR_STALE_SEQUENCE"
+    },
+    {
+      "code": "0x1008",
+      "name": "RATE_LIMITED"
+    },
+    {
+      "code": "0x1009",
+      "name": "COMMAND_NOT_ALLOWED"
+    },
+    {
+      "code": "0x100A",
+      "name": "PARAMETER_OUT_OF_RANGE"
+    },
+    {
+      "code": "0x100B",
+      "name": "POLICY_VERSION_INVALID"
+    },
+    {
+      "code": "0x100C",
+      "name": "PERSISTENCE_FAILED"
+    },
+    {
+      "code": "0x100D",
+      "name": "SAFE_MODE_ACTIVE"
+    },
+    {
+      "code": "0x100E",
+      "name": "UNKNOWN_COMMAND"
+    },
+    {
+      "code": "0x100F",
+      "name": "PAYLOAD_INVALID"
+    },
+    {
+      "code": "0x1010",
+      "name": "KEY_ID_UNKNOWN"
+    },
+    {
+      "code": "0x1011",
+      "name": "LINK_OFFLINE"
+    },
+    {
+      "code": "0x1012",
+      "name": "DEVICE_BUSY"
+    },
+    {
+      "code": "0x1013",
+      "name": "EXECUTION_FAILED"
+    },
+    {
+      "code": "0x1014",
+      "name": "ACK_TIMEOUT"
+    },
+    {
+      "code": "0x1015",
+      "name": "ROLE_FORBIDDEN"
+    },
+    {
+      "code": "0x1016",
+      "name": "SESSION_EXPIRED"
+    },
+    {
+      "code": "0x1017",
+      "name": "DEVICE_NOT_FOUND"
+    },
+    {
+      "code": "0x1018",
+      "name": "IDEMPOTENCY_CONFLICT"
+    },
+    {
+      "code": "0x1019",
+      "name": "STORAGE_UNAVAILABLE"
+    },
+    {
+      "code": "0x101A",
+      "name": "POLICY_PENDING"
+    }
+  ]
+}
