@@ -1,0 +1,21 @@
+# STM32CubeIDE generated build outputs
+Debug/
+Release/
+.settings/
+.metadata/
+*.launch
+*.elf
+*.hex
+*.bin
+*.map
+*.list
+*.su
+*.o
+*.d
+
+# Local test binaries
+tests/.build/
+
+# Python test cache
+__pycache__/
+*.pyc
