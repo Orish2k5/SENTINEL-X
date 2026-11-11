@@ -1,28 +1,46 @@
 #ifndef SX_UART_FRAME_H
 #define SX_UART_FRAME_H
-#include<stddef.h>
+
+#include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
+
 #include "sentinel_x_protocol_v1.h"
 
-typedef enum {
-    SX_PROTO_OK = 0,
-    SX_PROTO_ERR_ARGUMENT,
-    SX_PROTO_ERR_LENGTH,
-    SX_PROTO_ERR_SOF,
-    SX_PROTO_ERR_TYPE,
-    SX_PROTO_ERR_CRC,
-    SX_PROTO_ERR_FIELD
-} sx_proto_status_t;
+#define SX_UART_FRAME_PAYLOAD_CAPACITY 209u
+#define SX_UART_FRAME_TIMEOUT_MS 100u /* PROPOSED: confirm with ESP32 sender timing. */
 
 typedef struct {
     uint8_t frame_type;
     uint16_t payload_len;
-    const uint8_t *payload; /* pointer into caller-owned input */
-} sx_uart_frame_view_t;
+    uint8_t payload[SX_UART_FRAME_PAYLOAD_CAPACITY];
+} sx_uart_frame_t;
 
-sx_proto_status_t sx_uart_frame_parse(const uint8_t *frame, size_t frame_len,
-                                      sx_uart_frame_view_t *out_view);
-size_t sx_uart_frame_build(uint8_t frame_type, const uint8_t *payload,
-                           uint16_t payload_len, uint8_t *out_frame,
-                           size_t out_capacity);
-#endif
+typedef enum {
+    SX_UART_PARSE_ERROR = -1,
+    SX_UART_PARSE_NONE = 0,
+    SX_UART_PARSE_COMPLETE = 1
+} sx_uart_parse_result_t;
+
+typedef struct {
+    uint8_t state;
+    uint8_t frame_type;
+    uint16_t payload_len;
+    uint16_t payload_index;
+    uint16_t crc_running;
+    uint16_t crc_received;
+    uint8_t length_hi;
+    uint8_t payload[SX_UART_FRAME_PAYLOAD_CAPACITY];
+    uint32_t error_count;
+} sx_uart_parser_t;
+
+void sx_uart_parser_init(sx_uart_parser_t *parser);
+void sx_uart_parser_reset(sx_uart_parser_t *parser);
+bool sx_uart_parser_is_active(const sx_uart_parser_t *parser);
+sx_uart_parse_result_t sx_uart_parser_feed(
+    sx_uart_parser_t *parser,
+    uint8_t byte,
+    sx_uart_frame_t *completed_frame);
+uint16_t sx_crc16_ccitt_false(const uint8_t *data, size_t length);
+
+#endif /* SX_UART_FRAME_H */

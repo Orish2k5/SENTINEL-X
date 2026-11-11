@@ -1,68 +1,175 @@
 #include "sx_uart_frame.h"
-#include "sx_crc16.h"
 
-static uint16_t read_be16(const uint8_t *p)
+#include <string.h>
+
+enum {
+    SX_PARSE_WAIT_SOF_1 = 0,
+    SX_PARSE_WAIT_SOF_2,
+    SX_PARSE_FRAME_TYPE,
+    SX_PARSE_LENGTH_HI,
+    SX_PARSE_LENGTH_LO,
+    SX_PARSE_PAYLOAD,
+    SX_PARSE_CRC_HI,
+    SX_PARSE_CRC_LO
+};
+
+static uint16_t sx_crc_update(uint16_t crc, uint8_t byte)
 {
-    return (uint16_t)(((uint16_t)p[0] << 8) | p[1]);
-}
-static void write_be16(uint8_t *p, uint16_t value)
-{
-    p[0] = (uint8_t)(value >> 8);
-    p[1] = (uint8_t)value;
-}
-static sx_proto_status_t validate_payload(uint8_t type, const uint8_t *p, uint16_t n)
-{
-    if (type == SX_UART_FRAME_AUTH_ENVELOPE) {
-        return ((n >= SX_ENVELOPE_MIN_SIZE) && (n <= SX_ENVELOPE_MAX_SIZE))
-            ? SX_PROTO_OK : SX_PROTO_ERR_LENGTH;
+    uint8_t bit;
+
+    crc ^= (uint16_t)((uint16_t)byte << 8);
+    for (bit = 0u; bit < 8u; ++bit) {
+        if ((crc & 0x8000u) != 0u) {
+            crc = (uint16_t)((crc << 1) ^ SX_CRC16_CCITT_FALSE_POLY);
+        } else {
+            crc = (uint16_t)(crc << 1);
+        }
     }
-    if (type == SX_UART_FRAME_LINK_STATUS) {
-        if ((n != 7u) || (p == NULL)) return SX_PROTO_ERR_LENGTH;
-        if ((p[0] > 1u) || (p[1] > 1u) || (p[2] != 0u)) return SX_PROTO_ERR_FIELD;
-        return SX_PROTO_OK;
-    }
-    return SX_PROTO_ERR_TYPE;
+    return crc;
 }
 
-sx_proto_status_t sx_uart_frame_parse(const uint8_t *frame, size_t frame_len,
-                                      sx_uart_frame_view_t *out_view)
+uint16_t sx_crc16_ccitt_false(const uint8_t *data, size_t length)
 {
-    uint16_t payload_len, supplied_crc, actual_crc;
-    size_t expected_len;
-    sx_proto_status_t status;
-    if ((frame == NULL) || (out_view == NULL)) return SX_PROTO_ERR_ARGUMENT;
-    if ((frame_len < 7u) || (frame_len > SX_UART_MAX_FRAME_SIZE)) return SX_PROTO_ERR_LENGTH;
-    if ((frame[0] != SX_UART_SOF_0) || (frame[1] != SX_UART_SOF_1)) return SX_PROTO_ERR_SOF;
-    payload_len = read_be16(&frame[3]);
-    expected_len = 7u + (size_t)payload_len;
-    if ((expected_len != frame_len) || (expected_len > SX_UART_MAX_FRAME_SIZE)) return SX_PROTO_ERR_LENGTH;
-    status = validate_payload(frame[2], &frame[5], payload_len);
-    if (status != SX_PROTO_OK) return status;
-    supplied_crc = read_be16(&frame[frame_len - 2u]);
-    actual_crc = sx_crc16_ccitt_false(&frame[2], 3u + (size_t)payload_len);
-    if (supplied_crc != actual_crc) return SX_PROTO_ERR_CRC;
-    out_view->frame_type = frame[2];
-    out_view->payload_len = payload_len;
-    out_view->payload = &frame[5];
-    return SX_PROTO_OK;
-}
-
-size_t sx_uart_frame_build(uint8_t frame_type, const uint8_t *payload,
-                           uint16_t payload_len, uint8_t *out_frame,
-                           size_t out_capacity)
-{
-    size_t frame_len = 7u + (size_t)payload_len;
-    uint16_t crc;
     size_t i;
-    if ((out_frame == NULL) || ((payload == NULL) && (payload_len != 0u))) return 0u;
-    if ((frame_len > out_capacity) || (frame_len > SX_UART_MAX_FRAME_SIZE)) return 0u;
-    if (validate_payload(frame_type, payload, payload_len) != SX_PROTO_OK) return 0u;
-    out_frame[0] = SX_UART_SOF_0;
-    out_frame[1] = SX_UART_SOF_1;
-    out_frame[2] = frame_type;
-    write_be16(&out_frame[3], payload_len);
-    for (i = 0u; i < payload_len; ++i) out_frame[5u + i] = payload[i];
-    crc = sx_crc16_ccitt_false(&out_frame[2], 3u + (size_t)payload_len);
-    write_be16(&out_frame[5u + payload_len], crc);
-    return frame_len;
+    uint16_t crc = SX_CRC16_CCITT_FALSE_INIT;
+
+    if ((data == NULL) && (length != 0u)) {
+        return 0u;
+    }
+
+    for (i = 0u; i < length; ++i) {
+        crc = sx_crc_update(crc, data[i]);
+    }
+    return (uint16_t)(crc ^ SX_CRC16_CCITT_FALSE_XOROUT);
+}
+
+void sx_uart_parser_init(sx_uart_parser_t *parser)
+{
+    if (parser != NULL) {
+        (void)memset(parser, 0, sizeof(*parser));
+        parser->state = SX_PARSE_WAIT_SOF_1;
+        parser->crc_running = SX_CRC16_CCITT_FALSE_INIT;
+    }
+}
+
+void sx_uart_parser_reset(sx_uart_parser_t *parser)
+{
+    uint32_t errors;
+
+    if (parser == NULL) {
+        return;
+    }
+
+    errors = parser->error_count;
+    (void)memset(parser, 0, sizeof(*parser));
+    parser->state = SX_PARSE_WAIT_SOF_1;
+    parser->crc_running = SX_CRC16_CCITT_FALSE_INIT;
+    parser->error_count = errors;
+}
+
+bool sx_uart_parser_is_active(const sx_uart_parser_t *parser)
+{
+    return (parser != NULL) && (parser->state != SX_PARSE_WAIT_SOF_1);
+}
+
+static sx_uart_parse_result_t sx_parser_error(sx_uart_parser_t *parser)
+{
+    if (parser != NULL) {
+        parser->error_count++;
+        sx_uart_parser_reset(parser);
+    }
+    return SX_UART_PARSE_ERROR;
+}
+
+static bool sx_valid_frame_length(uint8_t frame_type, uint16_t payload_len)
+{
+    if (frame_type == SX_UART_FRAME_AUTH_ENVELOPE) {
+        return (payload_len >= 81u) && (payload_len <= SX_UART_FRAME_PAYLOAD_CAPACITY);
+    }
+    if (frame_type == SX_UART_FRAME_LINK_STATUS) {
+        return payload_len == 7u;
+    }
+    return false;
+}
+
+sx_uart_parse_result_t sx_uart_parser_feed(
+    sx_uart_parser_t *parser,
+    uint8_t byte,
+    sx_uart_frame_t *completed_frame)
+{
+    if ((parser == NULL) || (completed_frame == NULL)) {
+        return SX_UART_PARSE_ERROR;
+    }
+
+    switch (parser->state) {
+    case SX_PARSE_WAIT_SOF_1:
+        if (byte == SX_UART_SOF_0) {
+            parser->state = SX_PARSE_WAIT_SOF_2;
+        }
+        break;
+
+    case SX_PARSE_WAIT_SOF_2:
+        if (byte == SX_UART_SOF_1) {
+            parser->state = SX_PARSE_FRAME_TYPE;
+            parser->crc_running = SX_CRC16_CCITT_FALSE_INIT;
+        } else if (byte == SX_UART_SOF_0) {
+            /* Keep the latest 0xA5 as a possible start of frame. */
+            parser->state = SX_PARSE_WAIT_SOF_2;
+        } else {
+            parser->state = SX_PARSE_WAIT_SOF_1;
+        }
+        break;
+
+    case SX_PARSE_FRAME_TYPE:
+        parser->frame_type = byte;
+        parser->crc_running = sx_crc_update(parser->crc_running, byte);
+        parser->state = SX_PARSE_LENGTH_HI;
+        break;
+
+    case SX_PARSE_LENGTH_HI:
+        parser->length_hi = byte;
+        parser->crc_running = sx_crc_update(parser->crc_running, byte);
+        parser->state = SX_PARSE_LENGTH_LO;
+        break;
+
+    case SX_PARSE_LENGTH_LO:
+        parser->crc_running = sx_crc_update(parser->crc_running, byte);
+        parser->payload_len = (uint16_t)(((uint16_t)parser->length_hi << 8) | byte);
+        parser->payload_index = 0u;
+        if (!sx_valid_frame_length(parser->frame_type, parser->payload_len)) {
+            return sx_parser_error(parser);
+        }
+        parser->state = SX_PARSE_PAYLOAD;
+        break;
+
+    case SX_PARSE_PAYLOAD:
+        parser->payload[parser->payload_index] = byte;
+        parser->payload_index++;
+        parser->crc_running = sx_crc_update(parser->crc_running, byte);
+        if (parser->payload_index == parser->payload_len) {
+            parser->state = SX_PARSE_CRC_HI;
+        }
+        break;
+
+    case SX_PARSE_CRC_HI:
+        parser->crc_received = (uint16_t)((uint16_t)byte << 8);
+        parser->state = SX_PARSE_CRC_LO;
+        break;
+
+    case SX_PARSE_CRC_LO:
+        parser->crc_received |= byte;
+        if (parser->crc_received != parser->crc_running) {
+            return sx_parser_error(parser);
+        }
+        completed_frame->frame_type = parser->frame_type;
+        completed_frame->payload_len = parser->payload_len;
+        (void)memcpy(completed_frame->payload, parser->payload, parser->payload_len);
+        sx_uart_parser_reset(parser);
+        return SX_UART_PARSE_COMPLETE;
+
+    default:
+        return sx_parser_error(parser);
+    }
+
+    return SX_UART_PARSE_NONE;
 }
