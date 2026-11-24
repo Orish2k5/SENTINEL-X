@@ -1,0 +1,2677 @@
+diff --git a/firmware/stm32/.gitignore b/firmware/stm32/.gitignore
+new file mode 100644
+index 0000000000000000000000000000000000000000..2e5fcb6981314a1e1f7b40ba8cb59fcaf8ba0b0e
+--- /dev/null
++++ b/firmware/stm32/.gitignore
+@@ -0,0 +1,21 @@
++# STM32CubeIDE generated build outputs
++Debug/
++Release/
++.settings/
++.metadata/
++*.launch
++*.elf
++*.hex
++*.bin
++*.map
++*.list
++*.su
++*.o
++*.d
++
++# Local test binaries
++tests/.build/
++
++# Python test cache
++__pycache__/
++*.pyc
+diff --git a/firmware/stm32/Core/Inc/sx_app_core.h b/firmware/stm32/Core/Inc/sx_app_core.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..bad9418db937335e4dbbabe2fab2c44a467d03de
+--- /dev/null
++++ b/firmware/stm32/Core/Inc/sx_app_core.h
+@@ -0,0 +1,114 @@
++#ifndef SX_APP_CORE_H
++#define SX_APP_CORE_H
++
++#include <stdbool.h>
++#include <stddef.h>
++#include <stdint.h>
++
++#include "sx_envelope.h"
++#include "sx_replay_guard.h"
++
++#define SX_DEVICE_KEY_SIZE 32u
++#define SX_LINK_TIMEOUT_MS 3000u
++
++typedef bool (*sx_key_get_fn)(void *context, uint8_t key_id,
++                              uint8_t key_out[SX_DEVICE_KEY_SIZE]);
++typedef int (*sx_hmac_verify_fn)(void *context, const uint8_t key[SX_DEVICE_KEY_SIZE],
++                                 const uint8_t *data, size_t data_len,
++                                 const uint8_t tag[32]);
++typedef bool (*sx_policy_load_fn)(void *context, sx_policy_v1_t *policy);
++typedef bool (*sx_policy_commit_fn)(void *context, const sx_policy_v1_t *policy);
++typedef bool (*sx_rate_limit_allow_fn)(void *context, uint32_t now_ms,
++                                       uint16_t max_commands_per_second);
++
++typedef struct {
++    void *context;
++    void (*force_off)(void *context);
++    void (*set_level_permille)(void *context, uint16_t level_permille);
++} sx_output_interface_t;
++
++typedef struct {
++    void *context;
++    sx_policy_load_fn load;
++    sx_policy_commit_fn commit;
++} sx_policy_store_t;
++
++typedef struct {
++    void *context;
++    sx_key_get_fn get_key;
++} sx_key_provider_t;
++
++typedef struct {
++    void *context;
++    sx_hmac_verify_fn verify;
++} sx_crypto_provider_t;
++
++typedef enum {
++    SX_APP_RESULT_SUCCESS = SX_RESULT_SUCCESS,
++    SX_APP_RESULT_FRAME_INVALID = SX_ERR_FRAME_INVALID,
++    SX_APP_RESULT_LENGTH_INVALID = SX_ERR_LENGTH_INVALID,
++    SX_APP_RESULT_DEVICE_MISMATCH = SX_ERR_DEVICE_ID_MISMATCH,
++    SX_APP_RESULT_HMAC_INVALID = SX_ERR_HMAC_INVALID,
++    SX_APP_RESULT_REPLAY = SX_ERR_REPLAY_OR_STALE_SEQUENCE,
++    SX_APP_RESULT_RATE_LIMITED = SX_ERR_RATE_LIMITED,
++    SX_APP_RESULT_COMMAND_DENIED = SX_ERR_COMMAND_NOT_ALLOWED,
++    SX_APP_RESULT_PARAMETER_INVALID = SX_ERR_PARAMETER_OUT_OF_RANGE,
++    SX_APP_RESULT_PERSISTENCE_FAILED = SX_ERR_PERSISTENCE_FAILED,
++    SX_APP_RESULT_SAFE_MODE = SX_ERR_SAFE_MODE_ACTIVE,
++    SX_APP_RESULT_UNKNOWN_COMMAND = SX_ERR_UNKNOWN_COMMAND,
++    SX_APP_RESULT_PAYLOAD_INVALID = SX_ERR_PAYLOAD_INVALID,
++    SX_APP_RESULT_KEY_UNKNOWN = SX_ERR_KEY_ID_UNKNOWN,
++    SX_APP_RESULT_LINK_OFFLINE = SX_ERR_LINK_OFFLINE,
++    SX_APP_RESULT_STORAGE_UNAVAILABLE = SX_ERR_STORAGE_UNAVAILABLE,
++    SX_APP_RESULT_POLICY_PENDING = SX_ERR_POLICY_PENDING
++} sx_app_result_code_t;
++
++typedef struct {
++    sx_app_result_code_t result_code;
++    uint8_t execution_state; /* 0 rejected, 1 completed, 2 indeterminate */
++    uint8_t output_state;    /* 0 off, 1 on, 255 unknown */
++    uint16_t output_level_permille;
++} sx_app_result_t;
++
++typedef struct {
++    uint8_t device_id[SX_SIZE_DEVICE_ID];
++    sx_replay_guard_t replay_guard;
++    sx_sequence_store_t sequence_store;
++    sx_key_provider_t key_provider;
++    sx_crypto_provider_t crypto_provider;
++    sx_policy_store_t policy_store;
++    sx_rate_limit_allow_fn rate_limit_allow;
++    void *rate_limit_context;
++    sx_output_interface_t output;
++    sx_policy_v1_t active_policy;
++    bool policy_valid;
++    bool storage_ready;
++    bool link_seen;
++    bool link_online;
++    uint32_t last_link_status_ms;
++    uint8_t output_state;
++    uint16_t output_level_permille;
++    uint16_t last_nonzero_level_permille;
++    uint32_t accepted_count;
++    uint32_t rejected_count;
++} sx_app_core_t;
++
++bool sx_app_core_init(sx_app_core_t *app,
++                      const uint8_t device_id[SX_SIZE_DEVICE_ID],
++                      const sx_sequence_store_t *sequence_store,
++                      const sx_key_provider_t *key_provider,
++                      const sx_crypto_provider_t *crypto_provider,
++                      const sx_policy_store_t *policy_store,
++                      sx_rate_limit_allow_fn rate_limit_allow,
++                      void *rate_limit_context,
++                      const sx_output_interface_t *output);
++
++sx_app_result_t sx_app_process_envelope(sx_app_core_t *app,
++                                        const uint8_t *envelope, size_t envelope_len,
++                                        uint32_t now_ms);
++void sx_app_process_link_status(sx_app_core_t *app, const uint8_t payload[7],
++                                uint32_t now_ms);
++void sx_app_tick(sx_app_core_t *app, uint32_t now_ms);
++void sx_app_force_off(sx_app_core_t *app);
++
++#endif /* SX_APP_CORE_H */
+diff --git a/firmware/stm32/Core/Inc/sx_crypto_mbedtls.h b/firmware/stm32/Core/Inc/sx_crypto_mbedtls.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..c290e1517f4554ad7929f1e4125515874967636f
+--- /dev/null
++++ b/firmware/stm32/Core/Inc/sx_crypto_mbedtls.h
+@@ -0,0 +1,17 @@
++#ifndef SX_CRYPTO_MBEDTLS_H
++#define SX_CRYPTO_MBEDTLS_H
++
++#include <stddef.h>
++#include <stdint.h>
++
++/* Returns 1 only when the complete 32-byte HMAC-SHA-256 tag is valid. */
++int sx_crypto_verify_hmac_sha256(const uint8_t *key, size_t key_len,
++                                 const uint8_t *authenticated_bytes, size_t authenticated_len,
++                                 const uint8_t received_tag[32]);
++int sx_crypto_mbedtls_verify_callback(void *context,
++                                      const uint8_t key[32],
++                                      const uint8_t *authenticated_bytes,
++                                      size_t authenticated_len,
++                                      const uint8_t received_tag[32]);
++
++#endif /* SX_CRYPTO_MBEDTLS_H */
+diff --git a/firmware/stm32/Core/Inc/sx_envelope.h b/firmware/stm32/Core/Inc/sx_envelope.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..70eef76c02640fa724296f0315926ea9b94fcd9f
+--- /dev/null
++++ b/firmware/stm32/Core/Inc/sx_envelope.h
+@@ -0,0 +1,71 @@
++#ifndef SX_ENVELOPE_H
++#define SX_ENVELOPE_H
++
++#include <stdbool.h>
++#include <stddef.h>
++#include <stdint.h>
++
++#include "sentinel_x_protocol_v1.h"
++
++typedef struct {
++    uint8_t message_type;
++    uint8_t key_id;
++    uint64_t sequence;
++    const uint8_t *message_id;
++    uint16_t operation_code;
++    uint16_t payload_len;
++    const uint8_t *payload;
++    const uint8_t *tag;
++    const uint8_t *authenticated_bytes;
++    size_t authenticated_length;
++} sx_envelope_view_t;
++
++typedef struct {
++    uint16_t command_code;
++    uint8_t allowed;
++    uint16_t min_value;
++    uint16_t max_value;
++} sx_policy_entry_t;
++
++typedef struct {
++    uint32_t version;
++    uint16_t max_commands_per_second;
++    uint8_t entry_count;
++    uint8_t flags;
++    sx_policy_entry_t entries[8];
++} sx_policy_v1_t;
++
++typedef struct {
++    uint16_t operation_code;
++    uint16_t value;
++    uint8_t selector;
++} sx_command_t;
++
++typedef enum {
++    SX_ENVELOPE_OK = 0,
++    SX_ENVELOPE_ERR_ARGUMENT,
++    SX_ENVELOPE_ERR_LENGTH,
++    SX_ENVELOPE_ERR_MAGIC,
++    SX_ENVELOPE_ERR_VERSION,
++    SX_ENVELOPE_ERR_MESSAGE_TYPE,
++    SX_ENVELOPE_ERR_DEVICE_ID,
++    SX_ENVELOPE_ERR_KEY_ID,
++    SX_ENVELOPE_ERR_PAYLOAD_LENGTH,
++    SX_ENVELOPE_ERR_COMMAND,
++    SX_ENVELOPE_ERR_POLICY
++} sx_envelope_error_t;
++
++void sx_device_id_make(uint8_t output[SX_SIZE_DEVICE_ID], const char *ascii_id);
++bool sx_envelope_parse(
++    const uint8_t *bytes,
++    size_t length,
++    const uint8_t expected_device_id[SX_SIZE_DEVICE_ID],
++    sx_envelope_view_t *view,
++    sx_envelope_error_t *error);
++bool sx_command_decode(const sx_envelope_view_t *view, sx_command_t *command,
++                       sx_envelope_error_t *error);
++bool sx_policy_v1_decode(const uint8_t *payload, uint16_t payload_len,
++                         uint32_t active_policy_version, sx_policy_v1_t *policy,
++                         sx_envelope_error_t *error);
++
++#endif /* SX_ENVELOPE_H */
+diff --git a/firmware/stm32/Core/Inc/sx_platform_port.h b/firmware/stm32/Core/Inc/sx_platform_port.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..483c91f3ebf8be6b52db091fc8c5339d5f299db1
+--- /dev/null
++++ b/firmware/stm32/Core/Inc/sx_platform_port.h
+@@ -0,0 +1,25 @@
++#ifndef SX_PLATFORM_PORT_H
++#define SX_PLATFORM_PORT_H
++
++#include "sx_app_core.h"
++
++/*
++ * Board-specific implementation contract.
++ * Implement these callbacks only after the FRAM part and provisioning procedure
++ * have been selected. The template intentionally contains no RAM fallback.
++ */
++
++bool SX_Platform_SequenceLoad(void *context, uint64_t *high_water_mark);
++bool SX_Platform_SequenceCommit(void *context, uint64_t high_water_mark);
++bool SX_Platform_KeyGet(void *context, uint8_t key_id,
++                        uint8_t key_out[SX_DEVICE_KEY_SIZE]);
++bool SX_Platform_PolicyLoad(void *context, sx_policy_v1_t *policy);
++bool SX_Platform_PolicyCommit(void *context, const sx_policy_v1_t *policy);
++bool SX_Platform_RateLimitAllow(void *context, uint32_t now_ms,
++                                uint16_t max_commands_per_second);
++void SX_Platform_BindInterfaces(sx_sequence_store_t *sequence_store,
++                                sx_key_provider_t *key_provider,
++                                sx_crypto_provider_t *crypto_provider,
++                                sx_policy_store_t *policy_store);
++
++#endif /* SX_PLATFORM_PORT_H */
+diff --git a/firmware/stm32/Core/Inc/sx_replay_guard.h b/firmware/stm32/Core/Inc/sx_replay_guard.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..8c88c8882786f487cbad1ed0d5d212632b94b1c4
+--- /dev/null
++++ b/firmware/stm32/Core/Inc/sx_replay_guard.h
+@@ -0,0 +1,32 @@
++#ifndef SX_REPLAY_GUARD_H
++#define SX_REPLAY_GUARD_H
++
++#include <stdbool.h>
++#include <stdint.h>
++
++typedef bool (*sx_sequence_load_fn)(void *context, uint64_t *high_water_mark);
++typedef bool (*sx_sequence_commit_fn)(void *context, uint64_t new_high_water_mark);
++
++typedef struct {
++    void *context;
++    sx_sequence_load_fn load;
++    sx_sequence_commit_fn commit;
++} sx_sequence_store_t;
++
++typedef enum {
++    SX_REPLAY_ACCEPTED = 0,
++    SX_REPLAY_REJECTED,
++    SX_REPLAY_STORAGE_ERROR
++} sx_replay_result_t;
++
++typedef struct {
++    sx_sequence_store_t store;
++    uint64_t high_water_mark;
++    bool ready;
++} sx_replay_guard_t;
++
++bool sx_replay_guard_init(sx_replay_guard_t *guard, const sx_sequence_store_t *store);
++sx_replay_result_t sx_replay_guard_consume(sx_replay_guard_t *guard, uint64_t sequence);
++uint64_t sx_replay_guard_high_water(const sx_replay_guard_t *guard);
++
++#endif /* SX_REPLAY_GUARD_H */
+diff --git a/firmware/stm32/Core/Inc/sx_ring_buffer.h b/firmware/stm32/Core/Inc/sx_ring_buffer.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..cc921cea5ccf4f03901e30bf9e62da4c753284e9
+--- /dev/null
++++ b/firmware/stm32/Core/Inc/sx_ring_buffer.h
+@@ -0,0 +1,21 @@
++#ifndef SX_RING_BUFFER_H
++#define SX_RING_BUFFER_H
++
++#include <stdbool.h>
++#include <stdint.h>
++
++#define SX_UART_RX_RING_CAPACITY 512u
++
++typedef struct {
++    uint8_t bytes[SX_UART_RX_RING_CAPACITY];
++    volatile uint16_t head;
++    volatile uint16_t tail;
++    volatile bool overflow;
++} sx_byte_ring_t;
++
++void sx_byte_ring_init(sx_byte_ring_t *ring);
++bool sx_byte_ring_push_isr(sx_byte_ring_t *ring, uint8_t byte);
++bool sx_byte_ring_pop(sx_byte_ring_t *ring, uint8_t *byte);
++bool sx_byte_ring_take_overflow(sx_byte_ring_t *ring);
++
++#endif /* SX_RING_BUFFER_H */
+diff --git a/firmware/stm32/Core/Inc/sx_stm32_adapter.h b/firmware/stm32/Core/Inc/sx_stm32_adapter.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..ebe1beb1a51b3d78a1be1f8ceb15f4ad31c42443
+--- /dev/null
++++ b/firmware/stm32/Core/Inc/sx_stm32_adapter.h
+@@ -0,0 +1,21 @@
++#ifndef SX_STM32_ADAPTER_H
++#define SX_STM32_ADAPTER_H
++
++#include "main.h"
++#include "sx_app_core.h"
++
++/* Call immediately after HAL_Init(), before MX_GPIO_Init(). */
++void SX_STM32_ForceOutputOffEarly(void);
++/* Call after MX_GPIO_Init() and MX_TIM3_Init(); starts PWM at 0 permille. */
++HAL_StatusTypeDef SX_STM32_InitOutputSafe(void);
++/* Bind this interface into sx_app_core_init(). */
++void SX_STM32_GetOutputInterface(sx_output_interface_t *output);
++/* Start interrupt-driven USART1 RX; call once after MX_USART1_UART_Init(). */
++HAL_StatusTypeDef SX_STM32_StartUartRx(void);
++/* Call these from HAL_UART_RxCpltCallback / HAL_UART_ErrorCallback. */
++void SX_STM32_UartRxCompleteCallback(UART_HandleTypeDef *huart);
++void SX_STM32_UartErrorCallback(UART_HandleTypeDef *huart);
++/* Call repeatedly from the foreground main loop, never from an ISR. */
++void SX_STM32_Process(sx_app_core_t *app, uint32_t now_ms);
++
++#endif /* SX_STM32_ADAPTER_H */
+diff --git a/firmware/stm32/Core/Inc/sx_uart_frame.h b/firmware/stm32/Core/Inc/sx_uart_frame.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..40641d7bb310f746a1130ca62b3f38c9a9aedb8d
+--- /dev/null
++++ b/firmware/stm32/Core/Inc/sx_uart_frame.h
+@@ -0,0 +1,46 @@
++#ifndef SX_UART_FRAME_H
++#define SX_UART_FRAME_H
++
++#include <stdbool.h>
++#include <stddef.h>
++#include <stdint.h>
++
++#include "sentinel_x_protocol_v1.h"
++
++#define SX_UART_FRAME_PAYLOAD_CAPACITY 209u
++#define SX_UART_FRAME_TIMEOUT_MS 100u /* PROPOSED: confirm with ESP32 sender timing. */
++
++typedef struct {
++    uint8_t frame_type;
++    uint16_t payload_len;
++    uint8_t payload[SX_UART_FRAME_PAYLOAD_CAPACITY];
++} sx_uart_frame_t;
++
++typedef enum {
++    SX_UART_PARSE_ERROR = -1,
++    SX_UART_PARSE_NONE = 0,
++    SX_UART_PARSE_COMPLETE = 1
++} sx_uart_parse_result_t;
++
++typedef struct {
++    uint8_t state;
++    uint8_t frame_type;
++    uint16_t payload_len;
++    uint16_t payload_index;
++    uint16_t crc_running;
++    uint16_t crc_received;
++    uint8_t length_hi;
++    uint8_t payload[SX_UART_FRAME_PAYLOAD_CAPACITY];
++    uint32_t error_count;
++} sx_uart_parser_t;
++
++void sx_uart_parser_init(sx_uart_parser_t *parser);
++void sx_uart_parser_reset(sx_uart_parser_t *parser);
++bool sx_uart_parser_is_active(const sx_uart_parser_t *parser);
++sx_uart_parse_result_t sx_uart_parser_feed(
++    sx_uart_parser_t *parser,
++    uint8_t byte,
++    sx_uart_frame_t *completed_frame);
++uint16_t sx_crc16_ccitt_false(const uint8_t *data, size_t length);
++
++#endif /* SX_UART_FRAME_H */
+diff --git a/firmware/stm32/Core/Src/sx_app_core.c b/firmware/stm32/Core/Src/sx_app_core.c
+new file mode 100644
+index 0000000000000000000000000000000000000000..a247e366ca5718c61f9404372fd86b8717d38dcb
+--- /dev/null
++++ b/firmware/stm32/Core/Src/sx_app_core.c
+@@ -0,0 +1,378 @@
++#include "sx_app_core.h"
++
++#include <string.h>
++
++static bool sx_policy_struct_valid(const sx_policy_v1_t *policy);
++
++static sx_app_result_t sx_result(sx_app_core_t *app, sx_app_result_code_t code,
++                                 uint8_t execution_state)
++{
++    sx_app_result_t result;
++    result.result_code = code;
++    result.execution_state = execution_state;
++    result.output_state = app != NULL ? app->output_state : 255u;
++    result.output_level_permille = app != NULL ? app->output_level_permille : 65535u;
++    if ((app != NULL) && (code == SX_APP_RESULT_SUCCESS)) {
++        app->accepted_count++;
++    } else if (app != NULL) {
++        app->rejected_count++;
++    }
++    return result;
++}
++
++static void sx_force_output_off(sx_app_core_t *app)
++{
++    if (app == NULL) {
++        return;
++    }
++    if ((app->output.force_off != NULL)) {
++        app->output.force_off(app->output.context);
++    } else if (app->output.set_level_permille != NULL) {
++        app->output.set_level_permille(app->output.context, 0u);
++    }
++    app->output_state = 0u;
++    app->output_level_permille = 0u;
++}
++
++void sx_app_force_off(sx_app_core_t *app)
++{
++    sx_force_output_off(app);
++}
++
++bool sx_app_core_init(sx_app_core_t *app,
++                      const uint8_t device_id[SX_SIZE_DEVICE_ID],
++                      const sx_sequence_store_t *sequence_store,
++                      const sx_key_provider_t *key_provider,
++                      const sx_crypto_provider_t *crypto_provider,
++                      const sx_policy_store_t *policy_store,
++                      sx_rate_limit_allow_fn rate_limit_allow,
++                      void *rate_limit_context,
++                      const sx_output_interface_t *output)
++{
++    bool sequence_ok;
++
++    if ((app == NULL) || (device_id == NULL) || (sequence_store == NULL) ||
++        (key_provider == NULL) || (crypto_provider == NULL) || (output == NULL)) {
++        return false;
++    }
++
++    (void)memset(app, 0, sizeof(*app));
++    (void)memcpy(app->device_id, device_id, SX_SIZE_DEVICE_ID);
++    app->key_provider = *key_provider;
++    app->crypto_provider = *crypto_provider;
++    app->sequence_store = *sequence_store;
++    app->output = *output;
++    app->rate_limit_allow = rate_limit_allow;
++    app->rate_limit_context = rate_limit_context;
++    app->last_nonzero_level_permille = 1000u;
++    app->output_state = 0u;
++    app->output_level_permille = 0u;
++
++    sequence_ok = sx_replay_guard_init(&app->replay_guard, sequence_store);
++    app->storage_ready = sequence_ok;
++    if (!sequence_ok) {
++        sx_force_output_off(app);
++        return false;
++    }
++
++    if (policy_store != NULL) {
++        app->policy_store = *policy_store;
++        if ((policy_store->load != NULL) && policy_store->load(policy_store->context, &app->active_policy) &&
++            sx_policy_struct_valid(&app->active_policy)) {
++            /* The backend must also validate the FRAM record CRC/generation/commit marker. */
++            app->policy_valid = true;
++        }
++    }
++
++    sx_force_output_off(app);
++    return true;
++}
++
++static bool sx_policy_struct_valid(const sx_policy_v1_t *policy)
++{
++    uint8_t i;
++    uint8_t j;
++
++    if ((policy == NULL) || (policy->version == 0u) ||
++        (policy->max_commands_per_second < 1u) ||
++        (policy->max_commands_per_second > 20u) ||
++        (policy->entry_count < 1u) || (policy->entry_count > 8u) ||
++        ((policy->flags & 0xFEu) != 0u)) {
++        return false;
++    }
++
++    for (i = 0u; i < policy->entry_count; ++i) {
++        const sx_policy_entry_t *entry = &policy->entries[i];
++        bool bounds_valid = false;
++
++        if (entry->allowed > 1u) {
++            return false;
++        }
++        if (entry->min_value > entry->max_value) {
++            return false;
++        }
++        switch (entry->command_code) {
++        case SX_OP_SET_OUTPUT:
++            bounds_valid = entry->max_value <= 1u;
++            break;
++        case SX_OP_SET_LEVEL:
++            bounds_valid = entry->max_value <= 1000u;
++            break;
++        case SX_OP_GET_STATUS:
++            bounds_valid = (entry->min_value == 0u) && (entry->max_value == 0u);
++            break;
++        default:
++            bounds_valid = false;
++            break;
++        }
++        if (!bounds_valid) {
++            return false;
++        }
++        for (j = 0u; j < i; ++j) {
++            if (policy->entries[j].command_code == entry->command_code) {
++                return false;
++            }
++        }
++    }
++    return true;
++}
++
++static bool sx_policy_allows_command(const sx_policy_v1_t *policy,
++                                     const sx_command_t *command)
++{
++    uint8_t i;
++    uint16_t value;
++
++    if ((policy == NULL) || (command == NULL)) {
++        return false;
++    }
++
++    value = command->value;
++    for (i = 0u; i < policy->entry_count; ++i) {
++        const sx_policy_entry_t *entry = &policy->entries[i];
++        if (entry->command_code == command->operation_code) {
++            return (entry->allowed == 1u) &&
++                   (value >= entry->min_value) && (value <= entry->max_value);
++        }
++    }
++    return false;
++}
++
++static bool sx_apply_command(sx_app_core_t *app, const sx_command_t *command)
++{
++    uint16_t level;
++
++    if ((app == NULL) || (command == NULL)) {
++        return false;
++    }
++
++    switch (command->operation_code) {
++    case SX_OP_SET_OUTPUT:
++        if (command->value == 0u) {
++            sx_force_output_off(app);
++            return true;
++        }
++        level = app->last_nonzero_level_permille;
++        if (level == 0u) {
++            level = 1000u;
++        }
++        if (app->output.set_level_permille == NULL) {
++            return false;
++        }
++        app->output.set_level_permille(app->output.context, level);
++        app->output_state = 1u;
++        app->output_level_permille = level;
++        return true;
++
++    case SX_OP_SET_LEVEL:
++        if (command->value == 0u) {
++            sx_force_output_off(app);
++            return true;
++        }
++        if (app->output.set_level_permille == NULL) {
++            return false;
++        }
++        app->output.set_level_permille(app->output.context, command->value);
++        app->last_nonzero_level_permille = command->value;
++        app->output_state = 1u;
++        app->output_level_permille = command->value;
++        return true;
++
++    case SX_OP_GET_STATUS:
++        return true;
++
++    default:
++        return false;
++    }
++}
++
++sx_app_result_t sx_app_process_envelope(sx_app_core_t *app,
++                                        const uint8_t *envelope, size_t envelope_len,
++                                        uint32_t now_ms)
++{
++    sx_envelope_view_t view;
++    sx_envelope_error_t parse_error;
++    sx_command_t command;
++    sx_policy_v1_t new_policy;
++    uint8_t key[SX_DEVICE_KEY_SIZE];
++    sx_replay_result_t replay_result;
++
++    if ((app == NULL) || (envelope == NULL)) {
++        return sx_result(app, SX_APP_RESULT_FRAME_INVALID, 0u);
++    }
++    if (!app->storage_ready || !app->replay_guard.ready) {
++        sx_force_output_off(app);
++        return sx_result(app, SX_APP_RESULT_STORAGE_UNAVAILABLE, 0u);
++    }
++    if (!sx_envelope_parse(envelope, envelope_len, app->device_id, &view, &parse_error)) {
++        if (parse_error == SX_ENVELOPE_ERR_DEVICE_ID) {
++            return sx_result(app, SX_APP_RESULT_DEVICE_MISMATCH, 0u);
++        }
++        if (parse_error == SX_ENVELOPE_ERR_KEY_ID) {
++            return sx_result(app, SX_APP_RESULT_KEY_UNKNOWN, 0u);
++        }
++        if ((parse_error == SX_ENVELOPE_ERR_LENGTH) || (parse_error == SX_ENVELOPE_ERR_PAYLOAD_LENGTH)) {
++            return sx_result(app, SX_APP_RESULT_LENGTH_INVALID, 0u);
++        }
++        return sx_result(app, SX_APP_RESULT_FRAME_INVALID, 0u);
++    }
++
++    if ((app->key_provider.get_key == NULL) ||
++        !app->key_provider.get_key(app->key_provider.context, view.key_id, key)) {
++        volatile uint8_t *wipe = key;
++        size_t i;
++        for (i = 0u; i < sizeof(key); ++i) {
++            wipe[i] = 0u;
++        }
++        return sx_result(app, SX_APP_RESULT_KEY_UNKNOWN, 0u);
++    }
++    if ((app->crypto_provider.verify == NULL) ||
++        (app->crypto_provider.verify(app->crypto_provider.context, key,
++                                     view.authenticated_bytes, view.authenticated_length,
++                                     view.tag) != 1)) {
++        volatile uint8_t *wipe = key;
++        size_t i;
++        for (i = 0u; i < sizeof(key); ++i) {
++            wipe[i] = 0u;
++        }
++        return sx_result(app, SX_APP_RESULT_HMAC_INVALID, 0u);
++    }
++    {
++        volatile uint8_t *wipe = key;
++        size_t i;
++        for (i = 0u; i < sizeof(key); ++i) {
++            wipe[i] = 0u;
++        }
++    }
++
++    if (view.message_type == SX_MSG_CMD) {
++        if (!sx_command_decode(&view, &command, &parse_error)) {
++            return sx_result(app,
++                (view.operation_code == SX_OP_SET_OUTPUT) ||
++                (view.operation_code == SX_OP_SET_LEVEL) ||
++                (view.operation_code == SX_OP_GET_STATUS)
++                    ? SX_APP_RESULT_PAYLOAD_INVALID : SX_APP_RESULT_UNKNOWN_COMMAND,
++                0u);
++        }
++    } else if (view.message_type == SX_MSG_POLICY_UPDATE) {
++        if ((view.operation_code != SX_OP_POLICY_UPDATE) ||
++            !sx_policy_v1_decode(view.payload, view.payload_len,
++                                 app->policy_valid ? app->active_policy.version : 0u,
++                                 &new_policy, &parse_error)) {
++            return sx_result(app, SX_APP_RESULT_PARAMETER_INVALID, 0u);
++        }
++    } else {
++        return sx_result(app, SX_APP_RESULT_FRAME_INVALID, 0u);
++    }
++
++    /* A schema-valid authenticated message consumes its sequence even if policy denies it. */
++    replay_result = sx_replay_guard_consume(&app->replay_guard, view.sequence);
++    if (replay_result == SX_REPLAY_REJECTED) {
++        return sx_result(app, SX_APP_RESULT_REPLAY, 0u);
++    }
++    if (replay_result != SX_REPLAY_ACCEPTED) {
++        app->storage_ready = false;
++        sx_force_output_off(app);
++        return sx_result(app, SX_APP_RESULT_PERSISTENCE_FAILED, 0u);
++    }
++
++    if (view.message_type == SX_MSG_POLICY_UPDATE) {
++        if ((app->policy_store.commit == NULL) ||
++            !app->policy_store.commit(app->policy_store.context, &new_policy)) {
++            app->policy_valid = false;
++            sx_force_output_off(app);
++            return sx_result(app, SX_APP_RESULT_PERSISTENCE_FAILED, 0u);
++        }
++        app->active_policy = new_policy;
++        app->policy_valid = true;
++        return sx_result(app, SX_APP_RESULT_SUCCESS, 1u);
++    }
++
++    if ((command.operation_code != SX_OP_GET_STATUS) &&
++        (!app->link_seen || !app->link_online ||
++         ((uint32_t)(now_ms - app->last_link_status_ms) > SX_LINK_TIMEOUT_MS))) {
++        sx_force_output_off(app);
++        return sx_result(app, SX_APP_RESULT_LINK_OFFLINE, 0u);
++    }
++
++    if (!app->policy_valid) {
++        /* Contract allows authenticated GET_STATUS while policy is absent; actuation stays OFF. */
++        if (command.operation_code == SX_OP_GET_STATUS) {
++            return sx_result(app, SX_APP_RESULT_SUCCESS, 1u);
++        }
++        return sx_result(app, SX_APP_RESULT_SAFE_MODE, 0u);
++    }
++
++    if (!sx_policy_allows_command(&app->active_policy, &command)) {
++        return sx_result(app, SX_APP_RESULT_COMMAND_DENIED, 0u);
++    }
++
++    if (command.operation_code != SX_OP_GET_STATUS) {
++        if ((app->rate_limit_allow == NULL) ||
++            !app->rate_limit_allow(app->rate_limit_context, now_ms,
++                                   app->active_policy.max_commands_per_second)) {
++            return sx_result(app, SX_APP_RESULT_RATE_LIMITED, 0u);
++        }
++    }
++
++    if (!sx_apply_command(app, &command)) {
++        sx_force_output_off(app);
++        return sx_result(app, SX_APP_RESULT_PARAMETER_INVALID, 0u);
++    }
++    return sx_result(app, SX_APP_RESULT_SUCCESS, 1u);
++}
++
++void sx_app_process_link_status(sx_app_core_t *app, const uint8_t payload[7],
++                                uint32_t now_ms)
++{
++    if ((app == NULL) || (payload == NULL)) {
++        return;
++    }
++
++    if ((payload[0] > 1u) || (payload[1] > 1u) || (payload[2] != 0u)) {
++        app->link_online = false;
++        sx_force_output_off(app);
++        return;
++    }
++
++    app->link_seen = true;
++    app->link_online = (payload[0] == 1u) && (payload[1] == 1u);
++    app->last_link_status_ms = now_ms;
++    if (!app->link_online) {
++        sx_force_output_off(app);
++    }
++}
++
++void sx_app_tick(sx_app_core_t *app, uint32_t now_ms)
++{
++    if (app == NULL) {
++        return;
++    }
++    if (!app->link_seen || ((uint32_t)(now_ms - app->last_link_status_ms) > SX_LINK_TIMEOUT_MS) ||
++        !app->link_online) {
++        sx_force_output_off(app);
++    }
++    if (!app->storage_ready || !app->replay_guard.ready) {
++        sx_force_output_off(app);
++    }
++}
+diff --git a/firmware/stm32/Core/Src/sx_crypto_mbedtls.c b/firmware/stm32/Core/Src/sx_crypto_mbedtls.c
+new file mode 100644
+index 0000000000000000000000000000000000000000..b0eef899a8cd7d5775d60e07f5257a571ee7b4a6
+--- /dev/null
++++ b/firmware/stm32/Core/Src/sx_crypto_mbedtls.c
+@@ -0,0 +1,65 @@
++#include "sx_crypto_mbedtls.h"
++
++#include <stddef.h>
++#include <stdint.h>
++
++#include "mbedtls/md.h"
++
++static void sx_secure_zero(void *memory, size_t length)
++{
++    volatile uint8_t *p = (volatile uint8_t *)memory;
++    while (length > 0u) {
++        *p = 0u;
++        ++p;
++        --length;
++    }
++}
++
++static int sx_constant_time_equal_32(const uint8_t a[32], const uint8_t b[32])
++{
++    uint8_t difference = 0u;
++    size_t i;
++
++    for (i = 0u; i < 32u; ++i) {
++        difference |= (uint8_t)(a[i] ^ b[i]);
++    }
++    return difference == 0u ? 1 : 0;
++}
++
++int sx_crypto_verify_hmac_sha256(const uint8_t *key, size_t key_len,
++                                 const uint8_t *authenticated_bytes, size_t authenticated_len,
++                                 const uint8_t received_tag[32])
++{
++    const mbedtls_md_info_t *md_info;
++    uint8_t calculated_tag[32];
++    int valid = 0;
++
++    if ((key == NULL) || (authenticated_bytes == NULL) || (received_tag == NULL) ||
++        (key_len != 32u)) {
++        return 0;
++    }
++
++    md_info = mbedtls_md_info_from_type(MBEDTLS_MD_SHA256);
++    if (md_info == NULL) {
++        return 0;
++    }
++
++    if (mbedtls_md_hmac(md_info, key, key_len, authenticated_bytes,
++                        authenticated_len, calculated_tag) == 0) {
++        valid = sx_constant_time_equal_32(calculated_tag, received_tag);
++    }
++
++    sx_secure_zero(calculated_tag, sizeof(calculated_tag));
++    return valid;
++}
++
++int sx_crypto_mbedtls_verify_callback(void *context,
++                                      const uint8_t key[32],
++                                      const uint8_t *authenticated_bytes,
++                                      size_t authenticated_len,
++                                      const uint8_t received_tag[32])
++{
++    (void)context;
++    return sx_crypto_verify_hmac_sha256(key, 32u, authenticated_bytes,
++                                        authenticated_len, received_tag);
++}
+diff --git a/firmware/stm32/Core/Src/sx_envelope.c b/firmware/stm32/Core/Src/sx_envelope.c
+new file mode 100644
+index 0000000000000000000000000000000000000000..c7177fab5c2f134e1f35f0df125744c6e2bcaa0a
+--- /dev/null
++++ b/firmware/stm32/Core/Src/sx_envelope.c
+@@ -0,0 +1,251 @@
++#include "sx_envelope.h"
++
++#include <string.h>
++
++static uint16_t sx_read_u16_be(const uint8_t *p)
++{
++    return (uint16_t)(((uint16_t)p[0] << 8) | p[1]);
++}
++
++static uint32_t sx_read_u32_be(const uint8_t *p)
++{
++    return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) |
++           ((uint32_t)p[2] << 8) | (uint32_t)p[3];
++}
++
++static uint64_t sx_read_u64_be(const uint8_t *p)
++{
++    uint64_t value = 0u;
++    uint8_t i;
++    for (i = 0u; i < 8u; ++i) {
++        value = (value << 8) | (uint64_t)p[i];
++    }
++    return value;
++}
++
++static void sx_set_error(sx_envelope_error_t *error, sx_envelope_error_t value)
++{
++    if (error != NULL) {
++        *error = value;
++    }
++}
++
++void sx_device_id_make(uint8_t output[SX_SIZE_DEVICE_ID], const char *ascii_id)
++{
++    size_t i;
++
++    if (output == NULL) {
++        return;
++    }
++    (void)memset(output, 0, SX_SIZE_DEVICE_ID);
++    if (ascii_id == NULL) {
++        return;
++    }
++    for (i = 0u; (i < SX_SIZE_DEVICE_ID) && (ascii_id[i] != '\0'); ++i) {
++        output[i] = (uint8_t)ascii_id[i];
++    }
++}
++
++bool sx_envelope_parse(
++    const uint8_t *bytes,
++    size_t length,
++    const uint8_t expected_device_id[SX_SIZE_DEVICE_ID],
++    sx_envelope_view_t *view,
++    sx_envelope_error_t *error)
++{
++    uint16_t payload_len;
++    size_t expected_length;
++
++    if ((bytes == NULL) || (expected_device_id == NULL) || (view == NULL)) {
++        sx_set_error(error, SX_ENVELOPE_ERR_ARGUMENT);
++        return false;
++    }
++    if ((length < (SX_ENVELOPE_HEADER_SIZE + SX_ENVELOPE_TAG_SIZE)) ||
++        (length > SX_ENVELOPE_MAX_SIZE)) {
++        sx_set_error(error, SX_ENVELOPE_ERR_LENGTH);
++        return false;
++    }
++    if ((bytes[SX_OFF_MAGIC] != SX_ENVELOPE_MAGIC_0) ||
++        (bytes[SX_OFF_MAGIC + 1u] != SX_ENVELOPE_MAGIC_1)) {
++        sx_set_error(error, SX_ENVELOPE_ERR_MAGIC);
++        return false;
++    }
++    if (bytes[SX_OFF_PROTOCOL_VERSION] != SX_PROTOCOL_VERSION) {
++        sx_set_error(error, SX_ENVELOPE_ERR_VERSION);
++        return false;
++    }
++    if ((bytes[SX_OFF_MESSAGE_TYPE] != SX_MSG_CMD) &&
++        (bytes[SX_OFF_MESSAGE_TYPE] != SX_MSG_POLICY_UPDATE)) {
++        sx_set_error(error, SX_ENVELOPE_ERR_MESSAGE_TYPE);
++        return false;
++    }
++    if (memcmp(&bytes[SX_OFF_DEVICE_ID], expected_device_id, SX_SIZE_DEVICE_ID) != 0) {
++        sx_set_error(error, SX_ENVELOPE_ERR_DEVICE_ID);
++        return false;
++    }
++    if (bytes[SX_OFF_KEY_ID] != 1u) {
++        sx_set_error(error, SX_ENVELOPE_ERR_KEY_ID);
++        return false;
++    }
++
++    payload_len = sx_read_u16_be(&bytes[SX_OFF_PAYLOAD_LEN]);
++    if (payload_len > SX_ENVELOPE_MAX_PAYLOAD) {
++        sx_set_error(error, SX_ENVELOPE_ERR_PAYLOAD_LENGTH);
++        return false;
++    }
++    expected_length = (size_t)SX_ENVELOPE_HEADER_SIZE + (size_t)payload_len + SX_ENVELOPE_TAG_SIZE;
++    if (length != expected_length) {
++        sx_set_error(error, SX_ENVELOPE_ERR_PAYLOAD_LENGTH);
++        return false;
++    }
++
++    view->message_type = bytes[SX_OFF_MESSAGE_TYPE];
++    view->key_id = bytes[SX_OFF_KEY_ID];
++    view->sequence = sx_read_u64_be(&bytes[SX_OFF_SEQUENCE]);
++    view->message_id = &bytes[SX_OFF_MESSAGE_ID];
++    view->operation_code = sx_read_u16_be(&bytes[SX_OFF_OPERATION_CODE]);
++    view->payload_len = payload_len;
++    view->payload = &bytes[SX_OFF_PAYLOAD];
++    view->tag = &bytes[SX_OFF_PAYLOAD + payload_len];
++    view->authenticated_bytes = bytes;
++    view->authenticated_length = (size_t)SX_ENVELOPE_HEADER_SIZE + payload_len;
++    sx_set_error(error, SX_ENVELOPE_OK);
++    return true;
++}
++
++bool sx_command_decode(const sx_envelope_view_t *view, sx_command_t *command,
++                       sx_envelope_error_t *error)
++{
++    if ((view == NULL) || (command == NULL) || (view->message_type != SX_MSG_CMD)) {
++        sx_set_error(error, SX_ENVELOPE_ERR_ARGUMENT);
++        return false;
++    }
++
++    (void)memset(command, 0, sizeof(*command));
++    command->operation_code = view->operation_code;
++
++    switch (view->operation_code) {
++    case SX_OP_SET_OUTPUT:
++        if ((view->payload_len != 2u) || (view->payload[0] != 1u) || (view->payload[1] > 1u)) {
++            sx_set_error(error, SX_ENVELOPE_ERR_COMMAND);
++            return false;
++        }
++        command->selector = view->payload[0];
++        command->value = view->payload[1];
++        break;
++
++    case SX_OP_SET_LEVEL:
++        if ((view->payload_len != 3u) || (view->payload[0] != 1u)) {
++            sx_set_error(error, SX_ENVELOPE_ERR_COMMAND);
++            return false;
++        }
++        command->selector = view->payload[0];
++        command->value = sx_read_u16_be(&view->payload[1]);
++        if (command->value > 1000u) {
++            sx_set_error(error, SX_ENVELOPE_ERR_COMMAND);
++            return false;
++        }
++        break;
++
++    case SX_OP_GET_STATUS:
++        if (view->payload_len != 0u) {
++            sx_set_error(error, SX_ENVELOPE_ERR_COMMAND);
++            return false;
++        }
++        break;
++
++    default:
++        sx_set_error(error, SX_ENVELOPE_ERR_COMMAND);
++        return false;
++    }
++
++    sx_set_error(error, SX_ENVELOPE_OK);
++    return true;
++}
++
++static bool sx_policy_entry_bounds_valid(uint16_t code, uint16_t min_value, uint16_t max_value)
++{
++    if (min_value > max_value) {
++        return false;
++    }
++    switch (code) {
++    case SX_OP_SET_OUTPUT:
++        return max_value <= 1u;
++    case SX_OP_SET_LEVEL:
++        return max_value <= 1000u;
++    case SX_OP_GET_STATUS:
++        return (min_value == 0u) && (max_value == 0u);
++    default:
++        return false;
++    }
++}
++
++bool sx_policy_v1_decode(const uint8_t *payload, uint16_t payload_len,
++                         uint32_t active_policy_version, sx_policy_v1_t *policy,
++                         sx_envelope_error_t *error)
++{
++    uint8_t i;
++    uint8_t j;
++    uint8_t count;
++    uint32_t version;
++    uint16_t rate;
++    uint8_t flags;
++    uint16_t expected_len;
++
++    if ((payload == NULL) || (policy == NULL)) {
++        sx_set_error(error, SX_ENVELOPE_ERR_ARGUMENT);
++        return false;
++    }
++    if (payload_len < 15u) {
++        sx_set_error(error, SX_ENVELOPE_ERR_POLICY);
++        return false;
++    }
++
++    version = sx_read_u32_be(&payload[0]);
++    rate = sx_read_u16_be(&payload[4]);
++    count = payload[6];
++    flags = payload[7];
++
++    if ((version <= active_policy_version) || (rate < 1u) || (rate > 20u) ||
++        (count < 1u) || (count > 8u) || ((flags & 0xFEu) != 0u)) {
++        sx_set_error(error, SX_ENVELOPE_ERR_POLICY);
++        return false;
++    }
++
++    expected_len = (uint16_t)(8u + (uint16_t)(7u * count));
++    if ((payload_len != expected_len) || (payload_len > 64u)) {
++        sx_set_error(error, SX_ENVELOPE_ERR_POLICY);
++        return false;
++    }
++
++    (void)memset(policy, 0, sizeof(*policy));
++    policy->version = version;
++    policy->max_commands_per_second = rate;
++    policy->entry_count = count;
++    policy->flags = flags;
++
++    for (i = 0u; i < count; ++i) {
++        const uint8_t *entry_bytes = &payload[8u + (uint16_t)(7u * i)];
++        sx_policy_entry_t *entry = &policy->entries[i];
++
++        entry->command_code = sx_read_u16_be(&entry_bytes[0]);
++        entry->allowed = entry_bytes[2];
++        entry->min_value = sx_read_u16_be(&entry_bytes[3]);
++        entry->max_value = sx_read_u16_be(&entry_bytes[5]);
++
++        if ((entry->allowed > 1u) ||
++            !sx_policy_entry_bounds_valid(entry->command_code, entry->min_value, entry->max_value)) {
++            sx_set_error(error, SX_ENVELOPE_ERR_POLICY);
++            return false;
++        }
++        for (j = 0u; j < i; ++j) {
++            if (policy->entries[j].command_code == entry->command_code) {
++                sx_set_error(error, SX_ENVELOPE_ERR_POLICY);
++                return false;
++            }
++        }
++    }
++
++    sx_set_error(error, SX_ENVELOPE_OK);
++    return true;
++}
+diff --git a/firmware/stm32/Core/Src/sx_platform_port_template.c b/firmware/stm32/Core/Src/sx_platform_port_template.c
+new file mode 100644
+index 0000000000000000000000000000000000000000..598f69bf49d74e1b24d4d143aa598af01e31e7c3
+--- /dev/null
++++ b/firmware/stm32/Core/Src/sx_platform_port_template.c
+@@ -0,0 +1,79 @@
++#include "sx_platform_port.h"
++#include "sx_crypto_mbedtls.h"
++
++/*
++ * Deliberately fail-closed template. Replace each function with the selected
++ * FRAM/key-provisioning/rate-limit implementation. Do not return a fabricated
++ * sequence value of zero and do not embed a test key here.
++ */
++
++bool SX_Platform_SequenceLoad(void *context, uint64_t *high_water_mark)
++{
++    (void)context;
++    (void)high_water_mark;
++    return false;
++}
++
++bool SX_Platform_SequenceCommit(void *context, uint64_t high_water_mark)
++{
++    (void)context;
++    (void)high_water_mark;
++    return false;
++}
++
++bool SX_Platform_KeyGet(void *context, uint8_t key_id,
++                        uint8_t key_out[SX_DEVICE_KEY_SIZE])
++{
++    (void)context;
++    (void)key_id;
++    (void)key_out;
++    return false;
++}
++
++bool SX_Platform_PolicyLoad(void *context, sx_policy_v1_t *policy)
++{
++    (void)context;
++    (void)policy;
++    return false;
++}
++
++bool SX_Platform_PolicyCommit(void *context, const sx_policy_v1_t *policy)
++{
++    (void)context;
++    (void)policy;
++    return false;
++}
++
++bool SX_Platform_RateLimitAllow(void *context, uint32_t now_ms,
++                                uint16_t max_commands_per_second)
++{
++    (void)context;
++    (void)now_ms;
++    (void)max_commands_per_second;
++    return false;
++}
++
++void SX_Platform_BindInterfaces(sx_sequence_store_t *sequence_store,
++                                sx_key_provider_t *key_provider,
++                                sx_crypto_provider_t *crypto_provider,
++                                sx_policy_store_t *policy_store)
++{
++    if (sequence_store != NULL) {
++        sequence_store->context = NULL;
++        sequence_store->load = SX_Platform_SequenceLoad;
++        sequence_store->commit = SX_Platform_SequenceCommit;
++    }
++    if (key_provider != NULL) {
++        key_provider->context = NULL;
++        key_provider->get_key = SX_Platform_KeyGet;
++    }
++    if (crypto_provider != NULL) {
++        crypto_provider->context = NULL;
++        crypto_provider->verify = sx_crypto_mbedtls_verify_callback;
++    }
++    if (policy_store != NULL) {
++        policy_store->context = NULL;
++        policy_store->load = SX_Platform_PolicyLoad;
++        policy_store->commit = SX_Platform_PolicyCommit;
++    }
++}
+diff --git a/firmware/stm32/Core/Src/sx_replay_guard.c b/firmware/stm32/Core/Src/sx_replay_guard.c
+new file mode 100644
+index 0000000000000000000000000000000000000000..250022bd15c775ed0f902a3b67b71ba5ad43f476
+--- /dev/null
++++ b/firmware/stm32/Core/Src/sx_replay_guard.c
+@@ -0,0 +1,50 @@
++#include "sx_replay_guard.h"
++
++#include <string.h>
++
++bool sx_replay_guard_init(sx_replay_guard_t *guard, const sx_sequence_store_t *store)
++{
++    uint64_t high_water_mark = 0u;
++
++    if ((guard == NULL) || (store == NULL) || (store->load == NULL) || (store->commit == NULL)) {
++        return false;
++    }
++
++    (void)memset(guard, 0, sizeof(*guard));
++    guard->store = *store;
++    if (!guard->store.load(guard->store.context, &high_water_mark)) {
++        guard->ready = false;
++        return false;
++    }
++
++    guard->high_water_mark = high_water_mark;
++    guard->ready = true;
++    return true;
++}
++
++sx_replay_result_t sx_replay_guard_consume(sx_replay_guard_t *guard, uint64_t sequence)
++{
++    if ((guard == NULL) || !guard->ready || (guard->store.commit == NULL)) {
++        return SX_REPLAY_STORAGE_ERROR;
++    }
++    if (sequence <= guard->high_water_mark) {
++        return SX_REPLAY_REJECTED;
++    }
++
++    /* Commit before changing RAM state and, critically, before actuator execution. */
++    if (!guard->store.commit(guard->store.context, sequence)) {
++        guard->ready = false;
++        return SX_REPLAY_STORAGE_ERROR;
++    }
++
++    guard->high_water_mark = sequence;
++    return SX_REPLAY_ACCEPTED;
++}
++
++uint64_t sx_replay_guard_high_water(const sx_replay_guard_t *guard)
++{
++    if (guard == NULL) {
++        return 0u;
++    }
++    return guard->high_water_mark;
++}
+diff --git a/firmware/stm32/Core/Src/sx_ring_buffer.c b/firmware/stm32/Core/Src/sx_ring_buffer.c
+new file mode 100644
+index 0000000000000000000000000000000000000000..e61aadbb19b66242e96b14249bb3fdb5242b1acf
+--- /dev/null
++++ b/firmware/stm32/Core/Src/sx_ring_buffer.c
+@@ -0,0 +1,64 @@
++#include "sx_ring_buffer.h"
++
++#include <string.h>
++
++#define SX_RING_MASK (SX_UART_RX_RING_CAPACITY - 1u)
++
++#if ((SX_UART_RX_RING_CAPACITY & (SX_UART_RX_RING_CAPACITY - 1u)) != 0u)
++#error "SX_UART_RX_RING_CAPACITY must be a power of two"
++#endif
++
++void sx_byte_ring_init(sx_byte_ring_t *ring)
++{
++    if (ring != NULL) {
++        (void)memset(ring, 0, sizeof(*ring));
++    }
++}
++
++bool sx_byte_ring_push_isr(sx_byte_ring_t *ring, uint8_t byte)
++{
++    uint16_t next;
++
++    if (ring == NULL) {
++        return false;
++    }
++    next = (uint16_t)((ring->head + 1u) & SX_RING_MASK);
++    if (next == ring->tail) {
++        ring->overflow = true;
++        return false;
++    }
++    ring->bytes[ring->head] = byte;
++    /* Publish the byte before publishing the new head index. */
++#if defined(__GNUC__)
++    __atomic_thread_fence(__ATOMIC_RELEASE);
++#endif
++    ring->head = next;
++    return true;
++}
++
++bool sx_byte_ring_pop(sx_byte_ring_t *ring, uint8_t *byte)
++{
++    if ((ring == NULL) || (byte == NULL) || (ring->tail == ring->head)) {
++        return false;
++    }
++#if defined(__GNUC__)
++    __atomic_thread_fence(__ATOMIC_ACQUIRE);
++#endif
++    *byte = ring->bytes[ring->tail];
++#if defined(__GNUC__)
++    __atomic_thread_fence(__ATOMIC_RELEASE);
++#endif
++    ring->tail = (uint16_t)((ring->tail + 1u) & SX_RING_MASK);
++    return true;
++}
++
++bool sx_byte_ring_take_overflow(sx_byte_ring_t *ring)
++{
++    bool overflow;
++    if (ring == NULL) {
++        return false;
++    }
++    overflow = ring->overflow;
++    ring->overflow = false;
++    return overflow;
++}
+diff --git a/firmware/stm32/Core/Src/sx_stm32_adapter.c b/firmware/stm32/Core/Src/sx_stm32_adapter.c
+new file mode 100644
+index 0000000000000000000000000000000000000000..05d0b55b1c8cb3c418de2d0ed9d1260c23492fd0
+--- /dev/null
++++ b/firmware/stm32/Core/Src/sx_stm32_adapter.c
+@@ -0,0 +1,133 @@
++#include "sx_stm32_adapter.h"
++
++#include "sx_ring_buffer.h"
++#include "sx_uart_frame.h"
++
++extern UART_HandleTypeDef huart1;
++extern TIM_HandleTypeDef htim3;
++
++static uint8_t sx_uart_rx_byte;
++static sx_byte_ring_t sx_uart_rx_ring;
++static sx_uart_parser_t sx_uart_parser;
++static bool sx_uart_adapter_initialized;
++static volatile uint32_t sx_last_rx_byte_ms;
++
++static void sx_output_hal_off(void *context)
++{
++    (void)context;
++    __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_3, 0u);
++    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_RESET);
++}
++
++static void sx_output_hal_set_level(void *context, uint16_t level_permille)
++{
++    uint32_t arr;
++    uint32_t compare;
++    (void)context;
++
++    if (level_permille == 0u) {
++        sx_output_hal_off(NULL);
++        return;
++    }
++
++    arr = __HAL_TIM_GET_AUTORELOAD(&htim3);
++    compare = ((arr + 1u) * (uint32_t)level_permille) / 1000u;
++    if (compare > 65535u) {
++        compare = 65535u;
++    }
++    __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_3, compare);
++}
++
++void SX_STM32_ForceOutputOffEarly(void)
++{
++    GPIO_InitTypeDef gpio = {0};
++
++    __HAL_RCC_GPIOB_CLK_ENABLE();
++    /* Preload ODR low before switching PB0 to output mode. */
++    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_RESET);
++    gpio.Pin = GPIO_PIN_0;
++    gpio.Mode = GPIO_MODE_OUTPUT_PP;
++    gpio.Pull = GPIO_NOPULL;
++    gpio.Speed = GPIO_SPEED_FREQ_LOW;
++    HAL_GPIO_Init(GPIOB, &gpio);
++}
++
++HAL_StatusTypeDef SX_STM32_InitOutputSafe(void)
++{
++    __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_3, 0u);
++    sx_output_hal_off(NULL);
++    return HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_3);
++}
++
++void SX_STM32_GetOutputInterface(sx_output_interface_t *output)
++{
++    if (output == NULL) {
++        return;
++    }
++    output->context = NULL;
++    output->force_off = sx_output_hal_off;
++    output->set_level_permille = sx_output_hal_set_level;
++}
++
++HAL_StatusTypeDef SX_STM32_StartUartRx(void)
++{
++    sx_byte_ring_init(&sx_uart_rx_ring);
++    sx_uart_parser_init(&sx_uart_parser);
++    sx_uart_adapter_initialized = true;
++    return HAL_UART_Receive_IT(&huart1, &sx_uart_rx_byte, 1u);
++}
++
++void SX_STM32_UartRxCompleteCallback(UART_HandleTypeDef *huart)
++{
++    if ((huart == NULL) || (huart->Instance != USART1) || !sx_uart_adapter_initialized) {
++        return;
++    }
++    if (!sx_byte_ring_push_isr(&sx_uart_rx_ring, sx_uart_rx_byte)) {
++        /* Overflow is handled in foreground; no parsing, crypto or actuation in this callback. */
++    }
++    sx_last_rx_byte_ms = HAL_GetTick();
++    (void)HAL_UART_Receive_IT(&huart1, &sx_uart_rx_byte, 1u);
++}
++
++void SX_STM32_UartErrorCallback(UART_HandleTypeDef *huart)
++{
++    if ((huart == NULL) || (huart->Instance != USART1) || !sx_uart_adapter_initialized) {
++        return;
++    }
++    sx_uart_rx_ring.overflow = true;
++    (void)HAL_UART_AbortReceive(&huart1);
++    (void)HAL_UART_Receive_IT(&huart1, &sx_uart_rx_byte, 1u);
++}
++
++void SX_STM32_Process(sx_app_core_t *app, uint32_t now_ms)
++{
++    uint8_t byte;
++    sx_uart_frame_t frame;
++
++    if ((app == NULL) || !sx_uart_adapter_initialized) {
++        return;
++    }
++
++    if (sx_byte_ring_take_overflow(&sx_uart_rx_ring)) {
++        sx_uart_parser_reset(&sx_uart_parser);
++        sx_app_force_off(app);
++    }
++    if (sx_uart_parser_is_active(&sx_uart_parser) &&
++        ((uint32_t)(now_ms - sx_last_rx_byte_ms) > SX_UART_FRAME_TIMEOUT_MS)) {
++        sx_uart_parser_reset(&sx_uart_parser);
++    }
++
++    while (sx_byte_ring_pop(&sx_uart_rx_ring, &byte)) {
++        sx_uart_parse_result_t parsed = sx_uart_parser_feed(&sx_uart_parser, byte, &frame);
++        if (parsed == SX_UART_PARSE_COMPLETE) {
++            if (frame.frame_type == SX_UART_FRAME_LINK_STATUS) {
++                sx_app_process_link_status(app, frame.payload, now_ms);
++            } else if (frame.frame_type == SX_UART_FRAME_AUTH_ENVELOPE) {
++                /* HMAC, sequence persistence and command handling run in foreground context. */
++                (void)sx_app_process_envelope(app, frame.payload, frame.payload_len, now_ms);
++            }
++        }
++    }
++
++    sx_app_tick(app, now_ms);
++}
+diff --git a/firmware/stm32/Core/Src/sx_uart_frame.c b/firmware/stm32/Core/Src/sx_uart_frame.c
+new file mode 100644
+index 0000000000000000000000000000000000000000..eecea12ecf458024997eb6e6299f051421ed0816
+--- /dev/null
++++ b/firmware/stm32/Core/Src/sx_uart_frame.c
+@@ -0,0 +1,175 @@
++#include "sx_uart_frame.h"
++
++#include <string.h>
++
++enum {
++    SX_PARSE_WAIT_SOF_1 = 0,
++    SX_PARSE_WAIT_SOF_2,
++    SX_PARSE_FRAME_TYPE,
++    SX_PARSE_LENGTH_HI,
++    SX_PARSE_LENGTH_LO,
++    SX_PARSE_PAYLOAD,
++    SX_PARSE_CRC_HI,
++    SX_PARSE_CRC_LO
++};
++
++static uint16_t sx_crc_update(uint16_t crc, uint8_t byte)
++{
++    uint8_t bit;
++
++    crc ^= (uint16_t)((uint16_t)byte << 8);
++    for (bit = 0u; bit < 8u; ++bit) {
++        if ((crc & 0x8000u) != 0u) {
++            crc = (uint16_t)((crc << 1) ^ SX_CRC16_CCITT_FALSE_POLY);
++        } else {
++            crc = (uint16_t)(crc << 1);
++        }
++    }
++    return crc;
++}
++
++uint16_t sx_crc16_ccitt_false(const uint8_t *data, size_t length)
++{
++    size_t i;
++    uint16_t crc = SX_CRC16_CCITT_FALSE_INIT;
++
++    if ((data == NULL) && (length != 0u)) {
++        return 0u;
++    }
++
++    for (i = 0u; i < length; ++i) {
++        crc = sx_crc_update(crc, data[i]);
++    }
++    return (uint16_t)(crc ^ SX_CRC16_CCITT_FALSE_XOROUT);
++}
++
++void sx_uart_parser_init(sx_uart_parser_t *parser)
++{
++    if (parser != NULL) {
++        (void)memset(parser, 0, sizeof(*parser));
++        parser->state = SX_PARSE_WAIT_SOF_1;
++        parser->crc_running = SX_CRC16_CCITT_FALSE_INIT;
++    }
++}
++
++void sx_uart_parser_reset(sx_uart_parser_t *parser)
++{
++    uint32_t errors;
++
++    if (parser == NULL) {
++        return;
++    }
++
++    errors = parser->error_count;
++    (void)memset(parser, 0, sizeof(*parser));
++    parser->state = SX_PARSE_WAIT_SOF_1;
++    parser->crc_running = SX_CRC16_CCITT_FALSE_INIT;
++    parser->error_count = errors;
++}
++
++bool sx_uart_parser_is_active(const sx_uart_parser_t *parser)
++{
++    return (parser != NULL) && (parser->state != SX_PARSE_WAIT_SOF_1);
++}
++
++static sx_uart_parse_result_t sx_parser_error(sx_uart_parser_t *parser)
++{
++    if (parser != NULL) {
++        parser->error_count++;
++        sx_uart_parser_reset(parser);
++    }
++    return SX_UART_PARSE_ERROR;
++}
++
++static bool sx_valid_frame_length(uint8_t frame_type, uint16_t payload_len)
++{
++    if (frame_type == SX_UART_FRAME_AUTH_ENVELOPE) {
++        return (payload_len >= 81u) && (payload_len <= SX_UART_FRAME_PAYLOAD_CAPACITY);
++    }
++    if (frame_type == SX_UART_FRAME_LINK_STATUS) {
++        return payload_len == 7u;
++    }
++    return false;
++}
++
++sx_uart_parse_result_t sx_uart_parser_feed(
++    sx_uart_parser_t *parser,
++    uint8_t byte,
++    sx_uart_frame_t *completed_frame)
++{
++    if ((parser == NULL) || (completed_frame == NULL)) {
++        return SX_UART_PARSE_ERROR;
++    }
++
++    switch (parser->state) {
++    case SX_PARSE_WAIT_SOF_1:
++        if (byte == SX_UART_SOF_0) {
++            parser->state = SX_PARSE_WAIT_SOF_2;
++        }
++        break;
++
++    case SX_PARSE_WAIT_SOF_2:
++        if (byte == SX_UART_SOF_1) {
++            parser->state = SX_PARSE_FRAME_TYPE;
++            parser->crc_running = SX_CRC16_CCITT_FALSE_INIT;
++        } else if (byte == SX_UART_SOF_0) {
++            /* Keep the latest 0xA5 as a possible start of frame. */
++            parser->state = SX_PARSE_WAIT_SOF_2;
++        } else {
++            parser->state = SX_PARSE_WAIT_SOF_1;
++        }
++        break;
++
++    case SX_PARSE_FRAME_TYPE:
++        parser->frame_type = byte;
++        parser->crc_running = sx_crc_update(parser->crc_running, byte);
++        parser->state = SX_PARSE_LENGTH_HI;
++        break;
++
++    case SX_PARSE_LENGTH_HI:
++        parser->length_hi = byte;
++        parser->crc_running = sx_crc_update(parser->crc_running, byte);
++        parser->state = SX_PARSE_LENGTH_LO;
++        break;
++
++    case SX_PARSE_LENGTH_LO:
++        parser->crc_running = sx_crc_update(parser->crc_running, byte);
++        parser->payload_len = (uint16_t)(((uint16_t)parser->length_hi << 8) | byte);
++        parser->payload_index = 0u;
++        if (!sx_valid_frame_length(parser->frame_type, parser->payload_len)) {
++            return sx_parser_error(parser);
++        }
++        parser->state = SX_PARSE_PAYLOAD;
++        break;
++
++    case SX_PARSE_PAYLOAD:
++        parser->payload[parser->payload_index] = byte;
++        parser->payload_index++;
++        parser->crc_running = sx_crc_update(parser->crc_running, byte);
++        if (parser->payload_index == parser->payload_len) {
++            parser->state = SX_PARSE_CRC_HI;
++        }
++        break;
++
++    case SX_PARSE_CRC_HI:
++        parser->crc_received = (uint16_t)((uint16_t)byte << 8);
++        parser->state = SX_PARSE_CRC_LO;
++        break;
++
++    case SX_PARSE_CRC_LO:
++        parser->crc_received |= byte;
++        if (parser->crc_received != parser->crc_running) {
++            return sx_parser_error(parser);
++        }
++        completed_frame->frame_type = parser->frame_type;
++        completed_frame->payload_len = parser->payload_len;
++        (void)memcpy(completed_frame->payload, parser->payload, parser->payload_len);
++        sx_uart_parser_reset(parser);
++        return SX_UART_PARSE_COMPLETE;
++
++    default:
++        return sx_parser_error(parser);
++    }
++
++    return SX_UART_PARSE_NONE;
++}
+diff --git a/firmware/stm32/README.md b/firmware/stm32/README.md
+index 61e00996557ca8f2dee3796030fc64392320ebf9..5734961e7f50cca8235a7d8bb1b4a747686e69ad 100644
+--- a/firmware/stm32/README.md
++++ b/firmware/stm32/README.md
+@@ -1,3 +1,47 @@
+-# STM32F411RE firmware
++# STM32F411RE firmware — initial core
+ 
+-STM32CubeIDE project and MCU-side security enforcement. Keep hardware-specific pin assignments marked `PROPOSED` until verified against the actual board/module and tested on hardware. Do not commit generated `Debug/`, `Release/`, ELF, HEX or BIN outputs.
++This folder contains the first MCU-side implementation slice for SENTINEL-X. It is intended to be copied into a **STM32CubeIDE project generated for NUCLEO-F411RE / STM32F411RETx**. It is not a complete, self-contained CubeIDE project: CubeIDE must generate the startup code, linker script, CMSIS files, STM32F4 HAL and the `.ioc` for the local installed Cube firmware package.
++
++## Implemented in this slice
++
++- UART frame parser: SOF `A5 5A`, type/length validation, CRC-16/CCITT-FALSE, bounded payload storage and a proposed 100 ms partial-frame timeout (confirm with ESP32 timing).
++- EnvelopeV1 structural parser: version, direction, device ID, key ID, payload length, big-endian sequence and operation code.
++- Command payload validation for `SET_OUTPUT`, `SET_LEVEL`, `GET_STATUS`.
++- PolicyV1 payload validation, including version monotonicity, entry count, reserved flags, duplicate command rejection and absolute bounds.
++- HMAC-SHA-256 verification adapter for Mbed TLS, using a constant-time 32-byte tag comparison.
++- Replay guard with a persistent-storage callback. It commits the high-water mark before any output callback and fails closed on read/write failure.
++- MCU foreground processing core, link-status timeout handling and an interrupt-fed UART byte ring.
++- STM32 HAL adapter for PB0 / TIM3_CH3 PWM, USART1 interrupt RX, and early output-low initialization.
++- Host tests for CRC, UART parser, EnvelopeV1, command schemas, PolicyV1, replay persistence ordering, safe-mode behavior and the public HMAC vector.
++
++## Not implemented / hardware-dependent
++
++- CubeIDE-generated `.ioc`, startup code, linker script and HAL/CMSIS libraries.
++- Concrete FRAM part selection and its two-slot journal driver. The sequence and policy stores are interfaces only; do not replace them with RAM counters.
++- Real 32-byte device-key provisioning and the key-provider implementation. No real or test HMAC key is included in firmware.
++- Mbed TLS source/library integration and target compilation of `sx_crypto_mbedtls.c`.
++- ACK/EVENT/STATUS Envelope generation and UART TX path.
++- Final rate-limit algorithm selection. The contracts have a fixed-window/token-bucket discrepancy; the current core requires a rate-limit callback and denies actuator commands when it is absent.
++- Physical validation of PB0 PWM, UART wiring, external pull-down and the exact NUCLEO/module revision.
++
++Until valid persistent sequence storage, a provisioned device key, a valid persisted policy and a functioning link heartbeat are all provided, the MCU stays in a safe state and does not energize the PWM output.
++
++## Host tests
++
++From the repository root:
++
++```bash
++./firmware/stm32/tests/run_host_tests.sh
++```
++
++The host tests compile the portable C modules with GCC (`-Wall -Wextra -Werror -pedantic`) and verify the public interoperability vector with Python's standard `hmac` implementation. They do **not** compile the STM32 HAL adapter or the Mbed TLS source file.
++
++## Bring-up order
++
++1. Generate the NUCLEO-F411RE STM32CubeIDE project following `docs/CUBEIDE_SETUP.md`.
++2. Add `Core/Inc` and `Core/Src` files to the generated project; add `protocol/c` to compiler include paths.
++3. Wire early PB0 OFF, TIM3_CH3 PWM, USART1 RX/TX and the foreground adapter exactly as described in `docs/INTEGRATION_NOTES.md`.
++4. Build and flash with storage/key/policy providers still fail-closed. Confirm PWM remains OFF at reset, boot and UART disconnect.
++5. Select the FRAM part and implement the storage port before enabling any command that actuates output.
++6. Add Mbed TLS and a device-specific key provider; never use the public test vector key as a device key.
++7. Validate on the actual board with a low-voltage load/driver only.
+diff --git a/firmware/stm32/docs/CUBEIDE_SETUP.md b/firmware/stm32/docs/CUBEIDE_SETUP.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..9da56ee6e1b2504ebae630b74ea9b84e084b0fc5
+--- /dev/null
++++ b/firmware/stm32/docs/CUBEIDE_SETUP.md
+@@ -0,0 +1,97 @@
++# STM32CubeIDE setup — NUCLEO-F411RE
++
++This document describes the local CubeIDE project generation. A generated `.ioc` is deliberately not committed in this initial slice because the installed STM32CubeF4 package/CubeIDE version and board clock configuration have not been confirmed on the developer machine.
++
++## 1. Create the project
++
++1. Open STM32CubeIDE → **File → New → STM32 Project**.
++2. In **Board Selector**, search for `NUCLEO-F411RE` and select the matching board. If selecting by MCU instead, use `STM32F411RETx` and verify the package is for STM32F4.
++3. Set project name to `SENTINEL_X_STM32` and use the STM32CubeIDE toolchain.
++4. Keep the project in the SENTINEL-X workspace, preferably under `firmware/stm32/` (or create it there after ensuring the IDE does not overwrite the source folders).
++5. Choose C, not C++, and do not enable an RTOS in this initial bring-up.
++
++## 2. GPIO and fail-safe output
++
++**Baseline output:** `PB0 = TIM3_CH3`, low-voltage PWM only. The output is active-high in this proposed baseline.
++
++- Configure PB0 as `TIM3 Channel 3 PWM Generation CH3` (alternate function AF2).
++- Configure PWM mode 1, output polarity HIGH, fast mode disabled, and initial pulse/CCR = `0`.
++- Keep the timer output disabled until the application has forced CCR to zero.
++- `Core/Src/sx_stm32_adapter.c` calls `__HAL_TIM_SET_COMPARE(..., TIM_CHANNEL_3, 0)` before starting PWM.
++- Add an external pull-down (for example 10 kΩ) at the low-voltage driver input so the signal remains OFF while the MCU is reset or unpowered. Confirm the exact electrical design with the driver circuit.
++- Do not connect mains loads or drive an actuator directly from the MCU pin.
++
++Suggested PWM frequency: **1 kHz**, subject to the timer clock. Use:
++
++`f_PWM = f_TIM3 / ((PSC + 1) × (ARR + 1))`
++
++For example, if the actual TIM3 input clock is 84 MHz, `PSC=83` and `ARR=999` produce a 1 kHz PWM. Do not assume 84 MHz; calculate `PSC` from the clock tree configured in this `.ioc`.
++
++## 3. USART1
++
++Configure `USART1` in Asynchronous mode:
++
++| Parameter | Value |
++|---|---|
++| TX pin | PB6 / AF7 |
++| RX pin | PB7 / AF7 |
++| Baud | 115200 |
++| Word length | 8 bits |
++| Parity | None |
++| Stop bits | 1 |
++| Hardware flow control | None |
++| Oversampling | 16 |
++| RX interrupt | Enabled in NVIC |
++
++External wiring to ESP32-S3 is crossed:
++
++- STM32 PB6 / USART1_TX → ESP32-S3 UART RX (baseline GPIO18)
++- STM32 PB7 / USART1_RX ← ESP32-S3 UART TX (baseline GPIO17)
++- Common GND; both sides use 3.3 V logic.
++
++The ESP32-S3 GPIO mapping is proposed and must be checked against the exact DevKit board before wiring.
++
++## 4. Timer clock / PWM setup
++
++Configure TIM3 channel 3 as PWM1. The adapter calculates CCR from the configured ARR, so it does not assume a particular system-clock frequency. Set ARR/PSC so the resulting PWM frequency matches the output stage's requirements. Set initial CCR to zero in CubeMX and keep it zero in the generated initialization code.
++
++## 5. Other pins reserved by the Blueprint
++
++These are the current proposed assignments; they are not all used by this core slice:
++
++| Function | STM32 pin |
++|---|---|
++| TFT SPI2 SCK / MOSI / MISO | PB13 / PB15 / PB14 |
++| TFT CS / DC / RESET / BACKLIGHT | PB12 / PA9 / PC6 / PC7 |
++| FRAM I2C1 SCL / SDA | PB8 / PB9 |
++| RGB LED R / G / B | PA8 / PB1 / PA10 |
++| Buzzer | PB5 |
++| User button | PC13 |
++
++Do not configure these until checking for conflicts with the selected board, TFT/FRAM breakout and any debug interface.
++
++## 6. Compiler include paths and source files
++
++Add the shared protocol header directory to the compiler include paths:
++
++`../../protocol/c`
++
++Add the files from `firmware/stm32/Core/Inc` and `firmware/stm32/Core/Src` to the CubeIDE project. The portable host-tested core files are:
++
++- `sx_uart_frame.c`
++- `sx_envelope.c`
++- `sx_replay_guard.c`
++- `sx_app_core.c`
++- `sx_ring_buffer.c`
++
++The HAL-specific adapter `sx_stm32_adapter.c` requires the generated `main.h`, `huart1` and `htim3` handles.
++
++## 7. Mbed TLS
++
++Add a maintained Mbed TLS build compatible with the version selected for the project. The initial crypto adapter requires SHA-256/HMAC support (`MBEDTLS_MD_C` and `MBEDTLS_SHA256_C`) and the header `mbedtls/md.h`. Add the matching Mbed TLS include and source/library paths in CubeIDE.
++
++` sx_crypto_mbedtls.c` is intentionally excluded from the host GCC test target because Mbed TLS is not vendored in this repository. Target compilation must be recorded after the team selects and adds the exact Mbed TLS version/configuration.
++
++## 8. Generate code and verify
++
++Generate code, then integrate the adapter using `INTEGRATION_NOTES.md`. Do not start by sending an actuator command. First verify PB0 remains low at reset/boot and on UART timeout with a multimeter or oscilloscope and a safe low-voltage test circuit.
+diff --git a/firmware/stm32/docs/INTEGRATION_NOTES.md b/firmware/stm32/docs/INTEGRATION_NOTES.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..87cf896d1417dd5afe4ee1bea5812c4bf833635a
+--- /dev/null
++++ b/firmware/stm32/docs/INTEGRATION_NOTES.md
+@@ -0,0 +1,124 @@
++# Integrating the STM32 core into generated CubeIDE code
++
++## 1. Startup order
++
++In the generated `main.c`, integrate the startup in this order. Preserve CubeMX-generated initialization and add the indicated calls:
++
++```c
++static sx_app_core_t g_sx_app;
++static uint8_t g_sx_device_id[SX_SIZE_DEVICE_ID];
++static sx_sequence_store_t g_sx_sequence_store;
++static sx_key_provider_t g_sx_key_provider;
++static sx_crypto_provider_t g_sx_crypto_provider;
++static sx_policy_store_t g_sx_policy_store;
++static sx_output_interface_t g_sx_output;
++
++int main(void)
++{
++    HAL_Init();
++
++    /* First hardware action: preload PB0 low and make it a GPIO output. */
++    SX_STM32_ForceOutputOffEarly();
++
++    SystemClock_Config();
++    MX_GPIO_Init();
++    MX_USART1_UART_Init();
++    MX_TIM3_Init();
++
++    /* Set CCR=0 and only then start the PWM channel. */
++    if (SX_STM32_InitOutputSafe() != HAL_OK) {
++        Error_Handler();
++    }
++
++    /* These providers must be implemented by the hardware/provisioning layer.
++       No RAM-only replay store and no public test key are acceptable. */
++    sx_device_id_make(g_sx_device_id, "SX-001");
++    SX_STM32_GetOutputInterface(&g_sx_output);
++    SX_Platform_BindInterfaces(&g_sx_sequence_store,
++                               &g_sx_key_provider,
++                               &g_sx_crypto_provider,
++                               &g_sx_policy_store);
++    if (!sx_app_core_init(&g_sx_app,
++                          g_sx_device_id,
++                          &g_sx_sequence_store,
++                          &g_sx_key_provider,
++                          &g_sx_crypto_provider,
++                          &g_sx_policy_store,
++                          SX_Platform_RateLimitAllow,
++                          NULL,
++                          &g_sx_output)) {
++        /* Keep the device in OFF/SAFE_MODE. Do not skip the foreground loop. */
++        SX_STM32_ForceOutputOffEarly();
++    }
++
++    if (SX_STM32_StartUartRx() != HAL_OK) {
++        sx_app_force_off(&g_sx_app);
++    }
++
++    while (1) {
++        SX_STM32_Process(&g_sx_app, HAL_GetTick());
++        /* Other non-blocking diagnostics may run here. */
++    }
++}
++```
++
++`SX_Platform_BindInterfaces()` wires the initial fail-closed template callbacks. The storage/key/rate-limit callbacks in `sx_platform_port_template.c` deliberately return `false`; replace them with verified hardware/provisioning implementations before attempting actuation. The app must receive:
++
++- a sequence-store load/commit callback backed by the two-slot FRAM journal;
++- a key provider that returns the provisioned 32-byte device key only for a known key ID;
++- `sx_crypto_verify_hmac_sha256()` wrapped as an `sx_hmac_verify_fn`;
++- a policy-store load/commit callback backed by persistent storage;
++- a rate-limit callback using the algorithm selected by a recorded ADR;
++- the output interface returned by `SX_STM32_GetOutputInterface()`.
++
++If sequence storage cannot be read, `sx_app_core_init()` returns false and the app remains fail-closed. A policy-load failure does not authorize output commands; only an authenticated `GET_STATUS` is accepted when sequence storage is healthy.
++
++## 2. UART HAL callbacks
++
++Add the adapter calls to the callbacks generated/owned by the application. If callbacks already exist, merge the calls instead of defining duplicates:
++
++```c
++void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
++{
++    SX_STM32_UartRxCompleteCallback(huart);
++}
++
++void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
++{
++    SX_STM32_UartErrorCallback(huart);
++}
++```
++
++The callback only puts received bytes into a bounded single-producer/single-consumer ring and rearms one-byte interrupt RX. CRC, HMAC, persistent sequence commit and output changes execute in the foreground via `SX_STM32_Process()`.
++
++## 3. Output behavior
++
++- `SX_STM32_ForceOutputOffEarly()` must run immediately after `HAL_Init()` and before generated GPIO setup.
++- TIM3_CH3 must be configured on PB0 and initialized with CCR=0.
++- `SX_STM32_InitOutputSafe()` starts PWM with compare zero.
++- The first nonzero output is possible only after valid HMAC, schema validation, successful persistent sequence commit, online link status, valid persisted policy and successful rate-limit check.
++- `SET_OUTPUT(0)` and `SET_LEVEL(0)` set PWM to zero.
++- `SET_OUTPUT(1)` restores the last nonzero level (default 1000 permille); `SET_LEVEL(1..1000)` sets the level and enables the output.
++- Missing heartbeat for more than 3000 ms, link offline, UART ring overflow, invalid persistent storage or missing policy forces output OFF. Recovery of the link does not automatically restore the previous output.
++
++## 4. Sequence-store implementation contract
++
++The current code contains only `sx_sequence_store_t` callbacks. A future FRAM backend must implement the Blueprint's two-slot journal:
++
++1. Read both slots and validate generation, CRC and commit marker.
++2. Select the newest valid slot without treating two invalid slots as sequence zero.
++3. To commit a new high-water mark, write the inactive slot and verify readback.
++4. Write/verify the commit marker only after the data and CRC are valid.
++5. Keep the previous committed slot until the new slot is committed.
++6. On read/write/verification failure, return `false`; the replay guard enters unavailable state and the app forces OFF.
++
++The exact FRAM part/address/capacity is not specified in the current Blueprint. Do not invent a part-specific I2C driver until the BOM is selected.
++
++## 5. Current limitations
++
++- Partial-frame timeout is currently proposed as 100 ms and must be checked against ESP32-S3 sender timing.
++- The adapter currently receives and validates inbound frames but does not serialize/transmit ACK, EVENT or STATUS envelopes.
++- The app core does not yet implement the full Event Queue, Status serializer, outbound MCU sequence journal or all policy-application ACK behavior.
++- The HMAC key provider and FRAM stores are intentionally not faked. The device will not execute output commands until they are implemented.
++- Rate limiting is injected through a required callback. Resolve the fixed-window vs token-bucket discrepancy in the project documents before writing its implementation.
++- No physical timing, PWM, UART noise, brown-out or reset-retention result is claimed by these host tests.
+diff --git a/firmware/stm32/tests/mock_hal/main.h b/firmware/stm32/tests/mock_hal/main.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..57ba45e39abe51fcc6e571d3ca6a8bc7d0a6f7c4
+--- /dev/null
++++ b/firmware/stm32/tests/mock_hal/main.h
+@@ -0,0 +1,39 @@
++#ifndef SX_TEST_MOCK_MAIN_H
++#define SX_TEST_MOCK_MAIN_H
++
++#include <stdint.h>
++
++typedef int HAL_StatusTypeDef;
++#define HAL_OK 0
++
++typedef struct { volatile uint32_t ARR; volatile uint32_t CCR3; } TIM_TypeDef;
++typedef struct { volatile uint32_t ODR; } GPIO_TypeDef;
++typedef struct { void *Instance; } UART_HandleTypeDef;
++typedef struct { TIM_TypeDef *Instance; } TIM_HandleTypeDef;
++typedef struct { uint32_t Pin; uint32_t Mode; uint32_t Pull; uint32_t Speed; } GPIO_InitTypeDef;
++
++extern GPIO_TypeDef sx_mock_gpio_b;
++#define GPIOB (&sx_mock_gpio_b)
++#define USART1 ((void *)0x40011000u)
++
++#define GPIO_PIN_0 0x0001u
++#define GPIO_PIN_RESET 0u
++#define GPIO_MODE_OUTPUT_PP 1u
++#define GPIO_NOPULL 0u
++#define GPIO_SPEED_FREQ_LOW 0u
++#define TIM_CHANNEL_3 3u
++
++#define __HAL_RCC_GPIOB_CLK_ENABLE() ((void)0)
++#define __HAL_TIM_SET_COMPARE(htim, channel, value) \
++    do { (void)(channel); (htim)->Instance->CCR3 = (uint32_t)(value); } while (0)
++#define __HAL_TIM_GET_AUTORELOAD(htim) ((htim)->Instance->ARR)
++#define __DMB() ((void)0)
++
++void HAL_GPIO_WritePin(GPIO_TypeDef *gpio, uint32_t pin, uint32_t state);
++void HAL_GPIO_Init(GPIO_TypeDef *gpio, GPIO_InitTypeDef *init);
++HAL_StatusTypeDef HAL_TIM_PWM_Start(TIM_HandleTypeDef *tim, uint32_t channel);
++HAL_StatusTypeDef HAL_UART_Receive_IT(UART_HandleTypeDef *uart, uint8_t *data, uint16_t size);
++HAL_StatusTypeDef HAL_UART_AbortReceive(UART_HandleTypeDef *uart);
++uint32_t HAL_GetTick(void);
++
++#endif /* SX_TEST_MOCK_MAIN_H */
+diff --git a/firmware/stm32/tests/mock_hal/mbedtls/md.h b/firmware/stm32/tests/mock_hal/mbedtls/md.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..9810b6ab204320aa3e996776712829e71930fa2c
+--- /dev/null
++++ b/firmware/stm32/tests/mock_hal/mbedtls/md.h
+@@ -0,0 +1,11 @@
++#ifndef SX_TEST_MBEDTLS_MD_H
++#define SX_TEST_MBEDTLS_MD_H
++#include <stddef.h>
++#include <stdint.h>
++typedef struct mbedtls_md_info_t mbedtls_md_info_t;
++typedef enum { MBEDTLS_MD_SHA256 = 6 } mbedtls_md_type_t;
++const mbedtls_md_info_t *mbedtls_md_info_from_type(mbedtls_md_type_t md_type);
++int mbedtls_md_hmac(const mbedtls_md_info_t *md_info, const unsigned char *key,
++                    size_t keylen, const unsigned char *input, size_t ilen,
++                    unsigned char *output);
++#endif
+diff --git a/firmware/stm32/tests/run_host_tests.ps1 b/firmware/stm32/tests/run_host_tests.ps1
+new file mode 100644
+index 0000000000000000000000000000000000000000..17d908fcef3d9a6bbefe0321695cbb58bb3801bc
+--- /dev/null
++++ b/firmware/stm32/tests/run_host_tests.ps1
+@@ -0,0 +1,42 @@
++$ErrorActionPreference = 'Stop'
++
++$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
++$repoRoot = (Resolve-Path (Join-Path $scriptDir '../../../')).Path
++$buildDir = Join-Path $scriptDir '.build'
++New-Item -ItemType Directory -Force -Path $buildDir | Out-Null
++
++$protocolInclude = Join-Path $repoRoot 'protocol/c'
++$coreInclude = Join-Path $scriptDir '../Core/Inc'
++$mockInclude = Join-Path $scriptDir 'mock_hal'
++$exePath = Join-Path $buildDir 'test_stm32_core.exe'
++
++$portableSources = @(
++    (Join-Path $scriptDir '../Core/Src/sx_uart_frame.c'),
++    (Join-Path $scriptDir '../Core/Src/sx_envelope.c'),
++    (Join-Path $scriptDir '../Core/Src/sx_replay_guard.c'),
++    (Join-Path $scriptDir '../Core/Src/sx_app_core.c'),
++    (Join-Path $scriptDir '../Core/Src/sx_ring_buffer.c'),
++    (Join-Path $scriptDir 'test_stm32_core.c')
++)
++
++$gccArgs = @('-std=c11', '-Wall', '-Wextra', '-Werror', '-pedantic',
++             "-I$protocolInclude", "-I$coreInclude") + $portableSources + @('-o', $exePath)
++& gcc @gccArgs
++if ($LASTEXITCODE -ne 0) { throw "GCC test build failed: $LASTEXITCODE" }
++
++& $exePath
++if ($LASTEXITCODE -ne 0) { throw "STM32 core tests failed: $LASTEXITCODE" }
++
++& gcc -std=c11 -Wall -Wextra -Werror -pedantic -fsyntax-only `
++    "-I$mockInclude" "-I$protocolInclude" "-I$coreInclude" `
++    (Join-Path $scriptDir '../Core/Src/sx_stm32_adapter.c')
++if ($LASTEXITCODE -ne 0) { throw "STM32 HAL adapter syntax check failed: $LASTEXITCODE" }
++
++& gcc -std=c11 -Wall -Wextra -Werror -pedantic -fsyntax-only `
++    "-I$mockInclude" "-I$protocolInclude" "-I$coreInclude" `
++    (Join-Path $scriptDir '../Core/Src/sx_crypto_mbedtls.c') `
++    (Join-Path $scriptDir '../Core/Src/sx_platform_port_template.c')
++if ($LASTEXITCODE -ne 0) { throw "Crypto/platform syntax check failed: $LASTEXITCODE" }
++
++& python (Join-Path $scriptDir 'test_hmac_vector.py')
++if ($LASTEXITCODE -ne 0) { throw "HMAC vector test failed: $LASTEXITCODE" }
+diff --git a/firmware/stm32/tests/run_host_tests.sh b/firmware/stm32/tests/run_host_tests.sh
+new file mode 100755
+index 0000000000000000000000000000000000000000..1ed5c2dae52c1bfb8985b17131ed6b2741d06f38
+--- /dev/null
++++ b/firmware/stm32/tests/run_host_tests.sh
+@@ -0,0 +1,38 @@
++#!/usr/bin/env bash
++set -euo pipefail
++
++SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
++REPO_ROOT="$(cd "${SCRIPT_DIR}/../../../" && pwd)"
++BUILD_DIR="${SCRIPT_DIR}/.build"
++mkdir -p "${BUILD_DIR}"
++
++cc -std=c11 -Wall -Wextra -Werror -pedantic \
++  -I"${REPO_ROOT}/protocol/c" \
++  -I"${SCRIPT_DIR}/../Core/Inc" \
++  "${SCRIPT_DIR}/../Core/Src/sx_uart_frame.c" \
++  "${SCRIPT_DIR}/../Core/Src/sx_envelope.c" \
++  "${SCRIPT_DIR}/../Core/Src/sx_replay_guard.c" \
++  "${SCRIPT_DIR}/../Core/Src/sx_app_core.c" \
++  "${SCRIPT_DIR}/../Core/Src/sx_ring_buffer.c" \
++  "${SCRIPT_DIR}/test_stm32_core.c" \
++  -o "${BUILD_DIR}/test_stm32_core"
++
++"${BUILD_DIR}/test_stm32_core"
++
++# Compile-check the HAL adapter against a small declaration-only HAL shim.
++cc -std=c11 -Wall -Wextra -Werror -pedantic -fsyntax-only \
++  -I"${SCRIPT_DIR}/mock_hal" \
++  -I"${REPO_ROOT}/protocol/c" \
++  -I"${SCRIPT_DIR}/../Core/Inc" \
++  "${SCRIPT_DIR}/../Core/Src/sx_stm32_adapter.c"
++
++# Syntax-check the Mbed TLS adapter against the API declarations; actual
++# cryptographic correctness is separately checked with the published vector.
++cc -std=c11 -Wall -Wextra -Werror -pedantic -fsyntax-only \
++  -I"${SCRIPT_DIR}/mock_hal" \
++  -I"${REPO_ROOT}/protocol/c" \
++  -I"${SCRIPT_DIR}/../Core/Inc" \
++  "${SCRIPT_DIR}/../Core/Src/sx_crypto_mbedtls.c" \
++  "${SCRIPT_DIR}/../Core/Src/sx_platform_port_template.c"
++
++python3 "${SCRIPT_DIR}/test_hmac_vector.py"
+diff --git a/firmware/stm32/tests/test_hmac_vector.py b/firmware/stm32/tests/test_hmac_vector.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..dfb8198fc81094ddae5e40419631ef43c843a047
+--- /dev/null
++++ b/firmware/stm32/tests/test_hmac_vector.py
+@@ -0,0 +1,50 @@
++#!/usr/bin/env python3
++"""Verify the repository's public HMAC test vector (never a device key)."""
++
++from __future__ import annotations
++
++import hashlib
++import hmac
++import json
++from pathlib import Path
++
++
++def main() -> int:
++    vector_path = (
++        Path(__file__).resolve().parents[3]
++        / "protocol"
++        / "envelope_v1"
++        / "test-vectors"
++        / "envelope_v1_hmac.json"
++    )
++    if not vector_path.is_file():
++        raise FileNotFoundError(
++            f"Cannot find shared protocol vector: {vector_path}. "
++            "Run from the SENTINEL-X repository layout."
++        )
++
++    vector = json.loads(vector_path.read_text(encoding="utf-8"))
++    key = bytes.fromhex(vector["key_hex_test_only"])
++    message = bytes.fromhex(vector["authenticated_bytes_hex"])
++    expected = bytes.fromhex(vector["expected_tag_hex"])
++
++    actual = hmac.new(key, message, hashlib.sha256).digest()
++    if not hmac.compare_digest(actual, expected):
++        raise AssertionError("HMAC vector mismatch")
++
++    mutated = bytearray(message)
++    mutated[0] ^= 0x01
++    mutated_tag = hmac.new(key, bytes(mutated), hashlib.sha256).digest()
++    if hmac.compare_digest(mutated_tag, expected):
++        raise AssertionError("Mutated authenticated bytes unexpectedly matched the original tag")
++
++    expected_envelope_len = len(message) + len(expected)
++    if expected_envelope_len != vector["expected_envelope_length_bytes"]:
++        raise AssertionError("Envelope length in vector is inconsistent")
++
++    print("HMAC vector: PASS (valid tag and one-bit mutation test)")
++    return 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/firmware/stm32/tests/test_stm32_core.c b/firmware/stm32/tests/test_stm32_core.c
+new file mode 100644
+index 0000000000000000000000000000000000000000..ec6f54cd8b9c57da3d0f75243a1bad6f2cd886dd
+--- /dev/null
++++ b/firmware/stm32/tests/test_stm32_core.c
+@@ -0,0 +1,509 @@
++#include "sx_app_core.h"
++#include "sx_envelope.h"
++#include "sx_replay_guard.h"
++#include "sx_uart_frame.h"
++
++#include <stdio.h>
++#include <string.h>
++
++static unsigned int tests_run;
++static unsigned int tests_failed;
++static int mock_hmac_is_valid = 1;
++static bool mock_rate_is_allowed = true;
++
++#define CHECK(condition) do { \
++    tests_run++; \
++    if (!(condition)) { \
++        tests_failed++; \
++        (void)printf("FAIL %s:%d: %s\n", __FILE__, __LINE__, #condition); \
++    } \
++} while (0)
++
++typedef struct {
++    uint64_t high_water;
++    bool load_ok;
++    bool fail_commit;
++    unsigned int commit_calls;
++} mock_sequence_store_t;
++
++static bool mock_sequence_load(void *context, uint64_t *high_water)
++{
++    mock_sequence_store_t *store = (mock_sequence_store_t *)context;
++    if ((store == NULL) || (high_water == NULL) || !store->load_ok) {
++        return false;
++    }
++    *high_water = store->high_water;
++    return true;
++}
++
++static bool mock_sequence_commit(void *context, uint64_t new_high_water)
++{
++    mock_sequence_store_t *store = (mock_sequence_store_t *)context;
++    if (store == NULL) {
++        return false;
++    }
++    store->commit_calls++;
++    if (store->fail_commit || (new_high_water <= store->high_water)) {
++        return false;
++    }
++    store->high_water = new_high_water;
++    return true;
++}
++
++typedef struct {
++    sx_policy_v1_t policy;
++    bool load_ok;
++    bool fail_commit;
++    unsigned int commit_calls;
++} mock_policy_store_t;
++
++static bool mock_policy_load(void *context, sx_policy_v1_t *policy)
++{
++    mock_policy_store_t *store = (mock_policy_store_t *)context;
++    if ((store == NULL) || (policy == NULL) || !store->load_ok) {
++        return false;
++    }
++    *policy = store->policy;
++    return true;
++}
++
++static bool mock_policy_commit(void *context, const sx_policy_v1_t *policy)
++{
++    mock_policy_store_t *store = (mock_policy_store_t *)context;
++    if ((store == NULL) || (policy == NULL)) {
++        return false;
++    }
++    store->commit_calls++;
++    if (store->fail_commit) {
++        return false;
++    }
++    store->policy = *policy;
++    store->load_ok = true;
++    return true;
++}
++
++static bool mock_key_get(void *context, uint8_t key_id, uint8_t key_out[SX_DEVICE_KEY_SIZE])
++{
++    size_t i;
++    (void)context;
++    if ((key_id != 1u) || (key_out == NULL)) {
++        return false;
++    }
++    for (i = 0u; i < SX_DEVICE_KEY_SIZE; ++i) {
++        key_out[i] = (uint8_t)i;
++    }
++    return true;
++}
++
++static int mock_hmac_verify(void *context, const uint8_t key[SX_DEVICE_KEY_SIZE],
++                            const uint8_t *data, size_t data_len, const uint8_t tag[32])
++{
++    (void)context;
++    (void)key;
++    (void)data;
++    (void)data_len;
++    (void)tag;
++    return mock_hmac_is_valid; /* Test double only; Python validates the actual vector. */
++}
++
++static bool mock_rate_allow(void *context, uint32_t now_ms, uint16_t max_per_second)
++{
++    (void)context;
++    (void)now_ms;
++    return mock_rate_is_allowed && (max_per_second >= 1u);
++}
++
++typedef struct {
++    mock_sequence_store_t *sequence_store;
++    unsigned int off_calls;
++    unsigned int set_calls;
++    uint16_t last_level;
++    bool sequence_was_committed_before_output;
++} mock_output_t;
++
++static void mock_output_off(void *context)
++{
++    mock_output_t *output = (mock_output_t *)context;
++    if (output != NULL) {
++        output->off_calls++;
++    }
++}
++
++static void mock_output_set(void *context, uint16_t level_permille)
++{
++    mock_output_t *output = (mock_output_t *)context;
++    if (output != NULL) {
++        output->set_calls++;
++        output->last_level = level_permille;
++        output->sequence_was_committed_before_output =
++            (output->sequence_store != NULL) && (output->sequence_store->high_water > 0u);
++    }
++}
++
++static size_t build_envelope(uint8_t *out, uint8_t message_type, uint64_t sequence,
++                             uint16_t operation_code, const uint8_t *payload,
++                             uint16_t payload_len)
++{
++    static const uint8_t message_id[16] = {
++        0x12u, 0x3Eu, 0x45u, 0x67u, 0xE8u, 0x9Bu, 0x12u, 0xD3u,
++        0xA4u, 0x56u, 0x42u, 0x66u, 0x14u, 0x17u, 0x40u, 0x00u
++    };
++    const uint8_t device_id[6] = {'S', 'X', '-', '0', '0', '1'};
++    size_t offset;
++    uint8_t i;
++
++    (void)memset(out, 0, SX_ENVELOPE_MAX_SIZE);
++    out[0] = SX_ENVELOPE_MAGIC_0;
++    out[1] = SX_ENVELOPE_MAGIC_1;
++    out[2] = SX_PROTOCOL_VERSION;
++    out[3] = message_type;
++    (void)memcpy(&out[4], device_id, sizeof(device_id));
++    out[20] = 1u;
++    for (i = 0u; i < 8u; ++i) {
++        out[21u + i] = (uint8_t)(sequence >> (56u - (8u * i)));
++    }
++    (void)memcpy(&out[29], message_id, sizeof(message_id));
++    out[45] = (uint8_t)(operation_code >> 8);
++    out[46] = (uint8_t)operation_code;
++    out[47] = (uint8_t)(payload_len >> 8);
++    out[48] = (uint8_t)payload_len;
++    if ((payload != NULL) && (payload_len > 0u)) {
++        (void)memcpy(&out[49], payload, payload_len);
++    }
++    offset = 49u + payload_len;
++    /* Test double ignores this tag. It is non-secret placeholder test data. */
++    (void)memset(&out[offset], 0xA5, 32u);
++    return offset + 32u;
++}
++
++static void init_mock_policy(mock_policy_store_t *store)
++{
++    (void)memset(store, 0, sizeof(*store));
++    store->load_ok = true;
++    store->policy.version = 1u;
++    store->policy.max_commands_per_second = 5u;
++    store->policy.entry_count = 2u;
++    store->policy.flags = 0u;
++    store->policy.entries[0].command_code = SX_OP_SET_OUTPUT;
++    store->policy.entries[0].allowed = 1u;
++    store->policy.entries[0].min_value = 0u;
++    store->policy.entries[0].max_value = 1u;
++    store->policy.entries[1].command_code = SX_OP_SET_LEVEL;
++    store->policy.entries[1].allowed = 1u;
++    store->policy.entries[1].min_value = 0u;
++    store->policy.entries[1].max_value = 1000u;
++}
++
++static bool init_app(sx_app_core_t *app, mock_sequence_store_t *sequence,
++                     mock_policy_store_t *policy, mock_output_t *output,
++                     bool with_policy, bool with_rate_limit)
++{
++    uint8_t device_id[SX_SIZE_DEVICE_ID];
++    sx_sequence_store_t sequence_iface;
++    sx_key_provider_t key_provider;
++    sx_crypto_provider_t crypto_provider;
++    sx_policy_store_t policy_iface;
++    sx_output_interface_t output_iface;
++
++    sx_device_id_make(device_id, "SX-001");
++    sequence_iface.context = sequence;
++    sequence_iface.load = mock_sequence_load;
++    sequence_iface.commit = mock_sequence_commit;
++    key_provider.context = NULL;
++    key_provider.get_key = mock_key_get;
++    crypto_provider.context = NULL;
++    crypto_provider.verify = mock_hmac_verify;
++    policy_iface.context = policy;
++    policy_iface.load = with_policy ? mock_policy_load : NULL;
++    policy_iface.commit = with_policy ? mock_policy_commit : NULL;
++    output_iface.context = output;
++    output_iface.force_off = mock_output_off;
++    output_iface.set_level_permille = mock_output_set;
++    output->sequence_store = sequence;
++
++    return sx_app_core_init(app, device_id, &sequence_iface, &key_provider,
++                            &crypto_provider, with_policy ? &policy_iface : NULL,
++                            with_rate_limit ? mock_rate_allow : NULL, NULL, &output_iface);
++}
++
++static void test_crc_and_uart_parser(void)
++{
++    static const uint8_t check[] = "123456789";
++    uint8_t raw[2u + 1u + 2u + 81u + 2u];
++    uint16_t crc;
++    size_t i;
++    sx_uart_parser_t parser;
++    sx_uart_frame_t frame;
++    sx_uart_parse_result_t result = SX_UART_PARSE_NONE;
++
++    CHECK(sx_crc16_ccitt_false(check, 9u) == 0x29B1u);
++
++    raw[0] = SX_UART_SOF_0;
++    raw[1] = SX_UART_SOF_1;
++    raw[2] = SX_UART_FRAME_AUTH_ENVELOPE;
++    raw[3] = 0u;
++    raw[4] = 81u;
++    (void)memset(&raw[5], 0x5Au, 81u);
++    crc = sx_crc16_ccitt_false(&raw[2], 84u);
++    raw[86] = (uint8_t)(crc >> 8);
++    raw[87] = (uint8_t)crc;
++
++    sx_uart_parser_init(&parser);
++    for (i = 0u; i < sizeof(raw); ++i) {
++        result = sx_uart_parser_feed(&parser, raw[i], &frame);
++    }
++    CHECK(result == SX_UART_PARSE_COMPLETE);
++    CHECK(frame.frame_type == SX_UART_FRAME_AUTH_ENVELOPE);
++    CHECK(frame.payload_len == 81u);
++    CHECK(frame.payload[0] == 0x5Au);
++
++    /* An AUTH_ENVELOPE shorter than the protocol minimum must be rejected. */
++    sx_uart_parser_init(&parser);
++    (void)sx_uart_parser_feed(&parser, SX_UART_SOF_0, &frame);
++    (void)sx_uart_parser_feed(&parser, SX_UART_SOF_1, &frame);
++    (void)sx_uart_parser_feed(&parser, SX_UART_FRAME_AUTH_ENVELOPE, &frame);
++    (void)sx_uart_parser_feed(&parser, 0u, &frame);
++    result = sx_uart_parser_feed(&parser, 80u, &frame);
++    CHECK(result == SX_UART_PARSE_ERROR);
++    CHECK(parser.error_count == 1u);
++}
++
++static void test_envelope_and_command(void)
++{
++    static const uint8_t vector[] = {
++        0x53,0x58,0x01,0x01,0x53,0x58,0x2d,0x30,0x30,0x31,0x00,0x00,0x00,0x00,0x00,0x00,
++        0x00,0x00,0x00,0x00,0x01,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x01,0x12,0x3e,0x45,
++        0x67,0xe8,0x9b,0x12,0xd3,0xa4,0x56,0x42,0x66,0x14,0x17,0x40,0x00,0x00,0x01,0x00,
++        0x02,0x01,0x01,0x96,0xa0,0x90,0x46,0xcc,0x1f,0x69,0xb8,0x77,0xc9,0x7d,0xf4,0xea,
++        0x4b,0x58,0xba,0xb8,0x9e,0xae,0x59,0x56,0x0a,0x4b,0x92,0xff,0xfd,0x37,0x4f,0x91,
++        0xe5,0x70,0xea
++    };
++    uint8_t device_id[SX_SIZE_DEVICE_ID];
++    sx_envelope_view_t view;
++    sx_envelope_error_t error;
++    sx_command_t command;
++
++    sx_device_id_make(device_id, "SX-001");
++    CHECK(sizeof(vector) == 83u);
++    CHECK(sx_envelope_parse(vector, sizeof(vector), device_id, &view, &error));
++    CHECK(view.sequence == 1u);
++    CHECK(view.operation_code == SX_OP_SET_OUTPUT);
++    CHECK(view.payload_len == 2u);
++    CHECK(sx_command_decode(&view, &command, &error));
++    CHECK(command.selector == 1u);
++    CHECK(command.value == 1u);
++
++    device_id[0] = 'X';
++    CHECK(!sx_envelope_parse(vector, sizeof(vector), device_id, &view, &error));
++    CHECK(error == SX_ENVELOPE_ERR_DEVICE_ID);
++}
++
++static void test_policy_validation(void)
++{
++    const uint8_t valid_policy[] = {
++        0x00,0x00,0x00,0x02, /* policy_version = 2 */
++        0x00,0x05,           /* max commands/sec = 5 */
++        0x02,0x00,           /* two entries, flags 0 */
++        0x00,0x01,0x01,0x00,0x00,0x00,0x01, /* SET_OUTPUT allow 0..1 */
++        0x00,0x02,0x01,0x00,0x00,0x03,0xE8  /* SET_LEVEL allow 0..1000 */
++    };
++    uint8_t duplicate[sizeof(valid_policy)];
++    sx_policy_v1_t policy;
++    sx_envelope_error_t error;
++
++    CHECK(sx_policy_v1_decode(valid_policy, (uint16_t)sizeof(valid_policy), 1u, &policy, &error));
++    CHECK(policy.version == 2u);
++    CHECK(policy.entry_count == 2u);
++    CHECK(!sx_policy_v1_decode(valid_policy, (uint16_t)sizeof(valid_policy), 2u, &policy, &error));
++
++    (void)memcpy(duplicate, valid_policy, sizeof(duplicate));
++    duplicate[15] = duplicate[8];
++    duplicate[16] = duplicate[9];
++    CHECK(!sx_policy_v1_decode(duplicate, (uint16_t)sizeof(duplicate), 1u, &policy, &error));
++}
++
++static void test_replay_guard_commit_order_and_fail_closed(void)
++{
++    mock_sequence_store_t memory = {0u, true, false, 0u};
++    sx_sequence_store_t iface = {&memory, mock_sequence_load, mock_sequence_commit};
++    sx_replay_guard_t guard;
++
++    CHECK(sx_replay_guard_init(&guard, &iface));
++    CHECK(sx_replay_guard_consume(&guard, 3u) == SX_REPLAY_ACCEPTED);
++    CHECK(memory.high_water == 3u);
++    CHECK(sx_replay_guard_consume(&guard, 3u) == SX_REPLAY_REJECTED);
++    memory.fail_commit = true;
++    CHECK(sx_replay_guard_consume(&guard, 4u) == SX_REPLAY_STORAGE_ERROR);
++    CHECK(!guard.ready);
++    CHECK(sx_replay_guard_consume(&guard, 5u) == SX_REPLAY_STORAGE_ERROR);
++}
++
++static void test_app_execution_after_sequence_commit(void)
++{
++    sx_app_core_t app;
++    mock_sequence_store_t sequence = {0u, true, false, 0u};
++    mock_policy_store_t policy;
++    mock_output_t output = {0};
++    uint8_t link_status[7] = {1u, 1u, 0u, 0u, 0u, 0u, 1u};
++    uint8_t payload[2] = {1u, 1u};
++    uint8_t envelope[SX_ENVELOPE_MAX_SIZE];
++    size_t envelope_len;
++    sx_app_result_t result;
++
++    init_mock_policy(&policy);
++    CHECK(init_app(&app, &sequence, &policy, &output, true, true));
++    sx_app_process_link_status(&app, link_status, 10u);
++    envelope_len = build_envelope(envelope, SX_MSG_CMD, 1u, SX_OP_SET_OUTPUT, payload, 2u);
++    result = sx_app_process_envelope(&app, envelope, envelope_len, 20u);
++    CHECK(result.result_code == SX_APP_RESULT_SUCCESS);
++    CHECK(sequence.high_water == 1u);
++    CHECK(output.set_calls == 1u);
++    CHECK(output.last_level == 1000u);
++    CHECK(output.sequence_was_committed_before_output);
++
++    result = sx_app_process_envelope(&app, envelope, envelope_len, 30u);
++    CHECK(result.result_code == SX_APP_RESULT_REPLAY);
++    CHECK(output.set_calls == 1u);
++
++    sx_app_process_link_status(&app, (const uint8_t[7]){0u,1u,0u,0u,0u,0u,2u}, 40u);
++    CHECK(output.off_calls > 0u);
++    CHECK(app.output_state == 0u);
++}
++
++static void test_missing_policy_denies_actuation_but_allows_status(void)
++{
++    sx_app_core_t app;
++    mock_sequence_store_t sequence = {0u, true, false, 0u};
++    mock_policy_store_t policy;
++    mock_output_t output = {0};
++    uint8_t link_status[7] = {1u,1u,0u,0u,0u,0u,1u};
++    uint8_t set_payload[2] = {1u,1u};
++    uint8_t envelope[SX_ENVELOPE_MAX_SIZE];
++    size_t length;
++    sx_app_result_t result;
++
++    (void)memset(&policy, 0, sizeof(policy));
++    CHECK(init_app(&app, &sequence, &policy, &output, false, true));
++    sx_app_process_link_status(&app, link_status, 10u);
++
++    length = build_envelope(envelope, SX_MSG_CMD, 1u, SX_OP_SET_OUTPUT, set_payload, 2u);
++    result = sx_app_process_envelope(&app, envelope, length, 20u);
++    CHECK(result.result_code == SX_APP_RESULT_SAFE_MODE);
++    CHECK(sequence.high_water == 1u); /* authenticated/schema-valid denied command still consumes sequence */
++    CHECK(output.set_calls == 0u);
++
++    length = build_envelope(envelope, SX_MSG_CMD, 2u, SX_OP_GET_STATUS, NULL, 0u);
++    result = sx_app_process_envelope(&app, envelope, length, 30u);
++    CHECK(result.result_code == SX_APP_RESULT_SUCCESS);
++    CHECK(output.set_calls == 0u);
++}
++
++static void test_hmac_failure_and_rate_limit_do_not_actuate(void)
++{
++    sx_app_core_t app;
++    mock_sequence_store_t sequence = {0u, true, false, 0u};
++    mock_policy_store_t policy;
++    mock_output_t output = {0};
++    uint8_t payload[2] = {1u, 1u};
++    uint8_t envelope[SX_ENVELOPE_MAX_SIZE];
++    size_t length;
++    sx_app_result_t result;
++
++    init_mock_policy(&policy);
++    mock_hmac_is_valid = 0;
++    mock_rate_is_allowed = true;
++    CHECK(init_app(&app, &sequence, &policy, &output, true, true));
++    sx_app_process_link_status(&app, (const uint8_t[7]){1u,1u,0u,0u,0u,0u,1u}, 10u);
++    length = build_envelope(envelope, SX_MSG_CMD, 1u, SX_OP_SET_OUTPUT, payload, 2u);
++    result = sx_app_process_envelope(&app, envelope, length, 20u);
++    CHECK(result.result_code == SX_APP_RESULT_HMAC_INVALID);
++    CHECK(sequence.high_water == 0u);
++    CHECK(sequence.commit_calls == 0u);
++    CHECK(output.set_calls == 0u);
++
++    mock_hmac_is_valid = 1;
++    sequence.high_water = 0u;
++    sequence.commit_calls = 0u;
++    CHECK(init_app(&app, &sequence, &policy, &output, true, true));
++    sx_app_process_link_status(&app, (const uint8_t[7]){1u,1u,0u,0u,0u,0u,1u}, 10u);
++    mock_rate_is_allowed = false;
++    result = sx_app_process_envelope(&app, envelope, length, 20u);
++    CHECK(result.result_code == SX_APP_RESULT_RATE_LIMITED);
++    CHECK(sequence.high_water == 1u); /* rate-limited but authenticated commands consume sequence */
++    CHECK(output.set_calls == 0u);
++    mock_rate_is_allowed = true;
++}
++
++static void test_policy_update_persists_before_activation(void)
++{
++    sx_app_core_t app;
++    mock_sequence_store_t sequence = {0u, true, false, 0u};
++    mock_policy_store_t policy;
++    mock_output_t output = {0};
++    const uint8_t policy_payload[] = {
++        0x00,0x00,0x00,0x02, 0x00,0x05, 0x01,0x00,
++        0x00,0x01,0x01,0x00,0x00,0x00,0x01
++    };
++    uint8_t envelope[SX_ENVELOPE_MAX_SIZE];
++    size_t length;
++    sx_app_result_t result;
++
++    init_mock_policy(&policy);
++    CHECK(init_app(&app, &sequence, &policy, &output, true, true));
++    length = build_envelope(envelope, SX_MSG_POLICY_UPDATE, 1u,
++                            SX_OP_POLICY_UPDATE, policy_payload,
++                            (uint16_t)sizeof(policy_payload));
++    result = sx_app_process_envelope(&app, envelope, length, 100u);
++    CHECK(result.result_code == SX_APP_RESULT_SUCCESS);
++    CHECK(sequence.high_water == 1u);
++    CHECK(policy.commit_calls == 1u);
++    CHECK(app.policy_valid);
++    CHECK(app.active_policy.version == 2u);
++    CHECK(output.set_calls == 0u);
++}
++
++static void test_storage_failure_and_link_timeout(void)
++{
++    sx_app_core_t app;
++    mock_sequence_store_t sequence = {0u, true, true, 0u};
++    mock_policy_store_t policy;
++    mock_output_t output = {0};
++    sx_app_result_t result;
++    uint8_t payload[2] = {1u,1u};
++    uint8_t envelope[SX_ENVELOPE_MAX_SIZE];
++    size_t length;
++
++    init_mock_policy(&policy);
++    CHECK(init_app(&app, &sequence, &policy, &output, true, true));
++    sx_app_process_link_status(&app, (const uint8_t[7]){1u,1u,0u,0u,0u,0u,1u}, 100u);
++    length = build_envelope(envelope, SX_MSG_CMD, 1u, SX_OP_SET_OUTPUT, payload, 2u);
++    result = sx_app_process_envelope(&app, envelope, length, 200u);
++    CHECK(result.result_code == SX_APP_RESULT_PERSISTENCE_FAILED);
++    CHECK(!app.storage_ready);
++    CHECK(output.set_calls == 0u);
++
++    /* Separate healthy instance: missing heartbeat beyond 3000 ms forces OFF. */
++    sequence.high_water = 0u;
++    sequence.fail_commit = false;
++    CHECK(init_app(&app, &sequence, &policy, &output, true, true));
++    sx_app_process_link_status(&app, (const uint8_t[7]){1u,1u,0u,0u,0u,0u,1u}, 100u);
++    sx_app_tick(&app, 3101u);
++    CHECK(app.output_state == 0u);
++    CHECK(output.off_calls > 0u);
++}
++
++int main(void)
++{
++    test_crc_and_uart_parser();
++    test_envelope_and_command();
++    test_policy_validation();
++    test_replay_guard_commit_order_and_fail_closed();
++    test_app_execution_after_sequence_commit();
++    test_missing_policy_denies_actuation_but_allows_status();
++    test_hmac_failure_and_rate_limit_do_not_actuate();
++    test_policy_update_persists_before_activation();
++    test_storage_failure_and_link_timeout();
++
++    (void)printf("STM32 core host tests: %u checks, %u failures\n", tests_run, tests_failed);
++    return tests_failed == 0u ? 0 : 1;
++}
