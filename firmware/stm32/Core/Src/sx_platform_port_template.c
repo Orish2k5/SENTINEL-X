@@ -6,7 +6,6 @@
  * FRAM/key-provisioning/rate-limit implementation. Do not return a fabricated
  * sequence value of zero and do not embed a test key here.
  */
-
 bool SX_Platform_SequenceLoad(void *context, uint64_t *high_water_mark)
 {
     (void)context;
