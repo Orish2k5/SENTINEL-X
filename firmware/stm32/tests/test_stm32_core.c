@@ -119,25 +119,27 @@ typedef struct {
     unsigned int set_calls;
     uint16_t last_level;
     bool sequence_was_committed_before_output;
+    bool fail_set;
+    bool fail_off;
 } mock_output_t;
 
-static void mock_output_off(void *context)
+static bool mock_output_off(void *context)
 {
     mock_output_t *output = (mock_output_t *)context;
-    if (output != NULL) {
-        output->off_calls++;
-    }
+    if (output == NULL) return false;
+    output->off_calls++;
+    return !output->fail_off;
 }
 
-static void mock_output_set(void *context, uint16_t level_permille)
+static bool mock_output_set(void *context, uint16_t level_permille)
 {
     mock_output_t *output = (mock_output_t *)context;
-    if (output != NULL) {
-        output->set_calls++;
-        output->last_level = level_permille;
-        output->sequence_was_committed_before_output =
-            (output->sequence_store != NULL) && (output->sequence_store->high_water > 0u);
-    }
+    if (output == NULL) return false;
+    output->set_calls++;
+    output->last_level = level_permille;
+    output->sequence_was_committed_before_output =
+        (output->sequence_store != NULL) && (output->sequence_store->high_water > 0u);
+    return !output->fail_set;
 }
 
 static size_t build_envelope(uint8_t *out, uint8_t message_type, uint64_t sequence,
@@ -492,6 +494,29 @@ static void test_storage_failure_and_link_timeout(void)
     CHECK(output.off_calls > 0u);
 }
 
+static void test_output_adapter_failure_is_not_reported_as_success(void)
+{
+    sx_app_core_t app;
+    mock_sequence_store_t sequence = {0u, true, false, 0u};
+    mock_policy_store_t policy;
+    mock_output_t output = {0};
+    uint8_t payload[2] = {1u, 1u};
+    uint8_t envelope[SX_ENVELOPE_MAX_SIZE];
+    size_t length;
+    sx_app_result_t result;
+
+    init_mock_policy(&policy);
+    CHECK(init_app(&app, &sequence, &policy, &output, true, true));
+    sx_app_process_link_status(&app, (const uint8_t[7]){1u,1u,0u,0u,0u,0u,1u}, 10u);
+    output.fail_set = true;
+    length = build_envelope(envelope, SX_MSG_CMD, 1u, SX_OP_SET_OUTPUT, payload, 2u);
+    result = sx_app_process_envelope(&app, envelope, length, 20u);
+    CHECK(result.result_code == SX_APP_RESULT_EXECUTION_FAILED);
+    CHECK(result.execution_state == 2u);
+    CHECK(result.output_state == 0u); /* mock emergency OFF succeeds */
+    CHECK(sequence.high_water == 1u);
+}
+
 int main(void)
 {
     test_crc_and_uart_parser();
@@ -503,6 +528,7 @@ int main(void)
     test_hmac_failure_and_rate_limit_do_not_actuate();
     test_policy_update_persists_before_activation();
     test_storage_failure_and_link_timeout();
+    test_output_adapter_failure_is_not_reported_as_success();
 
     (void)printf("STM32 core host tests: %u checks, %u failures\n", tests_run, tests_failed);
     return tests_failed == 0u ? 0 : 1;

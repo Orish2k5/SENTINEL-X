@@ -1,7 +1,7 @@
 #ifndef SX_STM32_ADAPTER_H
 #define SX_STM32_ADAPTER_H
 
-#include "main.h"
+#include "stm32f4xx_hal.h"
 #include "sx_app_core.h"
 
 /* Call immediately after HAL_Init(), before MX_GPIO_Init(). */

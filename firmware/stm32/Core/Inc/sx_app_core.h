@@ -23,8 +23,8 @@ typedef bool (*sx_rate_limit_allow_fn)(void *context, uint32_t now_ms,
 
 typedef struct {
     void *context;
-    void (*force_off)(void *context);
-    void (*set_level_permille)(void *context, uint16_t level_permille);
+    bool (*force_off)(void *context);
+    bool (*set_level_permille)(void *context, uint16_t level_permille);
 } sx_output_interface_t;
 
 typedef struct {
@@ -60,6 +60,7 @@ typedef enum {
     SX_APP_RESULT_KEY_UNKNOWN = SX_ERR_KEY_ID_UNKNOWN,
     SX_APP_RESULT_LINK_OFFLINE = SX_ERR_LINK_OFFLINE,
     SX_APP_RESULT_STORAGE_UNAVAILABLE = SX_ERR_STORAGE_UNAVAILABLE,
+    SX_APP_RESULT_EXECUTION_FAILED = SX_ERR_EXECUTION_FAILED,
     SX_APP_RESULT_POLICY_PENDING = SX_ERR_POLICY_PENDING
 } sx_app_result_code_t;
 

@@ -4,9 +4,9 @@
 #include "sx_app_core.h"
 
 /*
- * Board-specific implementation contract.
- * Implement these callbacks only after the FRAM part and provisioning procedure
- * have been selected. The template intentionally contains no RAM fallback.
+ * Legacy fail-closed fallback binding. For the v0.2 AT24C256 implementation,
+ * include sx_platform_port_at24c256.h and call its explicitly named bind API.
+ * Never replace persistent storage with a RAM-only high-water counter.
  */
 
 bool SX_Platform_SequenceLoad(void *context, uint64_t *high_water_mark);

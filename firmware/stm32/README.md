@@ -1,20 +1,26 @@
-# SENTINEL-X STM32 Core v0.1
+# SENTINEL-X STM32 Core v0.2
 
-Initial STM32F411RE security-enforcement core and bring-up material for the `develop` branch.
+This is an incremental firmware package based on STM32 Core v0.1. It keeps the existing EnvelopeV1, UART, HMAC adapter and application design, and adds:
 
-## Contents
+1. AT24C256 page-bounded I2C access;
+2. wear-levelled, fail-closed sequence journals for both sequence directions;
+3. dual-slot persistent PolicyV1 storage;
+4. a TB6612FNG motor driver for one fixed forward direction;
+5. boolean output callbacks so a hardware adapter error is not reported as a successful command;
+6. a fault latch that prevents further EEPROM reads/commits after ambiguous I/O until reinitialization and journal rescan;
+7. host tests for EEPROM page splitting, journal reboot/rollover, interrupted and ambiguous commits, corruption fail-closed, policy persistence and motor safe ordering.
 
-- `firmware/stm32/Core`: portable C parser, EnvelopeV1 validator, PolicyV1 validator, HMAC/Mbed TLS adapter, persistent replay guard, application core, byte ring and Cube HAL adapter.
-- `firmware/stm32/docs`: CubeIDE setup and generated-code integration instructions.
-- `firmware/stm32/tests`: host unit tests, HMAC vector test, HAL/Mbed TLS declaration shims and Windows PowerShell/Bash runners.
-- `protocol`: mirror copies of the shared protocol C header and public HMAC test vector to make the archive self-testable. These files already exist in the live repo and should remain governed by the repo's source of truth.
-- `VALIDATION.md`: exact checks run and limitations.
-- `APPLY_TO_REPO.md`: feature-branch patch workflow.
+## Integration
 
-## Validation result
+Use `apply_to_repo.ps1` (Windows PowerShell) or manually copy only `sx_*.h` from package `Core/Inc` and `sx_*.c` from package `Core/Src` into the matching repository directories. Preserve CubeMX-generated `main.c`, `main.h`, `.ioc`, HAL files and the repository's existing shared protocol header at `protocol/c/sentinel_x_protocol_v1.h`. Do not copy `tests/mock_hal` into the CubeIDE target build. Use the package's `protocol/` copies only for standalone package tests; do not overwrite the repository's canonical protocol header/vector with them.
 
-`./firmware/stm32/tests/run_host_tests.sh` passes: **68 C assertions, 0 failures**, and the HMAC vector test passes. The HAL and Mbed TLS code received syntax checks against declaration-only shims. This is not a target CubeIDE build or a physical-board validation.
+The NUCLEO pin proposal is PB0 TIM3_CH3, PA0 AIN1, PA1 AIN2, PC0 STBY, PB8/PB9 I2C1 and PB6/PB7 USART1. Confirm the `.ioc` and board wiring before connecting the motor or EEPROM.
 
-## Safety status
+## Deliberately incomplete security integrations
 
-The default sequence-store/key/policy/rate-limit port template returns `false`. This is deliberate: no network command can actuate the PWM output until real persistent storage, a device-specific key, a persisted valid policy and the rate limiter are implemented. Never substitute the public test vector key for a device key.
+- AT24C256 blank provisioning is a manual factory-only API; never call it on every boot.
+- The key provider and rate limiter return false by design. No actuator command can be accepted until real device-key provisioning and the rate-limit decision are implemented. Any uncertain EEPROM I/O error latches the persistence object faulted; reinitialize and rescan after reboot/recovery before considering further commands.
+- Policy must be stored before actuation is permitted.
+- Outbound ACK/EVENT/STATUS serialization/transmission, Modbus relay control and physical test evidence are not part of v0.2.
+
+See `APPLY_TO_REPO.md`, `firmware/stm32/README.md` and `firmware/stm32/docs/` for integration details.

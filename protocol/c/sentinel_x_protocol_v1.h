@@ -16,7 +16,6 @@
 #define SX_ENVELOPE_HEADER_SIZE         49u
 #define SX_ENVELOPE_TAG_SIZE            32u
 #define SX_ENVELOPE_MAX_PAYLOAD         128u
-#define SX_ENVELOPE_MIN_SIZE            (SX_ENVELOPE_HEADER_SIZE + SX_ENVELOPE_TAG_SIZE)
 #define SX_ENVELOPE_MAX_SIZE            (SX_ENVELOPE_HEADER_SIZE + SX_ENVELOPE_MAX_PAYLOAD + SX_ENVELOPE_TAG_SIZE) /* 209 */
 
 #define SX_OFF_MAGIC                    0u
@@ -58,18 +57,18 @@
 /* Result/error codes: values are uint16 big-endian on the wire. */
 #define SX_RESULT_SUCCESS               0x0000u
 #define SX_ERR_FRAME_INVALID            0x1001u
-#define SX_ERR_LENGTH_INVALID           0x1002u
-#define SX_ERR_CRC_INVALID              0x1003u
-#define SX_ERR_VERSION_UNSUPPORTED      0x1004u
-#define SX_ERR_DEVICE_ID_MISMATCH       0x1005u
-#define SX_ERR_HMAC_INVALID             0x1006u
-#define SX_ERR_REPLAY_OR_STALE_SEQUENCE 0x1007u
-#define SX_ERR_RATE_LIMITED             0x1008u
-#define SX_ERR_COMMAND_NOT_ALLOWED      0x1009u
-#define SX_ERR_PARAMETER_OUT_OF_RANGE   0x100Au
-#define SX_ERR_POLICY_VERSION_INVALID   0x100Bu
+#define SX_ERR_LENGTH_INVALID            0x1002u
+#define SX_ERR_CRC_INVALID               0x1003u
+#define SX_ERR_VERSION_UNSUPPORTED       0x1004u
+#define SX_ERR_DEVICE_ID_MISMATCH        0x1005u
+#define SX_ERR_HMAC_INVALID              0x1006u
+#define SX_ERR_REPLAY_OR_STALE_SEQUENCE  0x1007u
+#define SX_ERR_RATE_LIMITED              0x1008u
+#define SX_ERR_COMMAND_NOT_ALLOWED       0x1009u
+#define SX_ERR_PARAMETER_OUT_OF_RANGE    0x100Au
+#define SX_ERR_POLICY_VERSION_INVALID    0x100Bu
 #define SX_ERR_PERSISTENCE_FAILED        0x100Cu
-#define SX_ERR_SAFE_MODE_ACTIVE          0x100Du
+#define SX_ERR_SAFE_MODE_ACTIVE           0x100Du
 #define SX_ERR_UNKNOWN_COMMAND           0x100Eu
 #define SX_ERR_PAYLOAD_INVALID           0x100Fu
 #define SX_ERR_KEY_ID_UNKNOWN            0x1010u

@@ -2,10 +2,11 @@
 #include "sx_crypto_mbedtls.h"
 
 /*
- * Deliberately fail-closed template. Replace each function with the selected
- * FRAM/key-provisioning/rate-limit implementation. Do not return a fabricated
- * sequence value of zero and do not embed a test key here.
+ * Legacy deliberately fail-closed fallback. v0.2 adds a separate AT24C256
+ * binding in sx_platform_port_at24c256.c. Do not bind a fabricated RAM counter
+ * and do not embed a public test key here.
  */
+
 bool SX_Platform_SequenceLoad(void *context, uint64_t *high_water_mark)
 {
     (void)context;

@@ -20,23 +20,28 @@ static sx_app_result_t sx_result(sx_app_core_t *app, sx_app_result_code_t code,
     return result;
 }
 
-static void sx_force_output_off(sx_app_core_t *app)
+static bool sx_force_output_off(sx_app_core_t *app)
 {
+    bool ok = false;
+
     if (app == NULL) {
-        return;
+        return false;
     }
-    if ((app->output.force_off != NULL)) {
-        app->output.force_off(app->output.context);
+    if (app->output.force_off != NULL) {
+        ok = app->output.force_off(app->output.context);
     } else if (app->output.set_level_permille != NULL) {
-        app->output.set_level_permille(app->output.context, 0u);
+        ok = app->output.set_level_permille(app->output.context, 0u);
     }
-    app->output_state = 0u;
-    app->output_level_permille = 0u;
+
+    /* Unknown is safer than claiming OFF if the hardware adapter reports failure. */
+    app->output_state = ok ? 0u : 255u;
+    app->output_level_permille = ok ? 0u : 65535u;
+    return ok;
 }
 
 void sx_app_force_off(sx_app_core_t *app)
 {
-    sx_force_output_off(app);
+    (void)sx_force_output_off(app);
 }
 
 bool sx_app_core_init(sx_app_core_t *app,
@@ -79,12 +84,14 @@ bool sx_app_core_init(sx_app_core_t *app,
         app->policy_store = *policy_store;
         if ((policy_store->load != NULL) && policy_store->load(policy_store->context, &app->active_policy) &&
             sx_policy_struct_valid(&app->active_policy)) {
-            /* The backend must also validate the FRAM record CRC/generation/commit marker. */
+            /* The backend must validate its persistent record CRC/generation/commit marker. */
             app->policy_valid = true;
         }
     }
 
-    sx_force_output_off(app);
+    if (!sx_force_output_off(app)) {
+        return false;
+    }
     return true;
 }
 
@@ -169,30 +176,28 @@ static bool sx_apply_command(sx_app_core_t *app, const sx_command_t *command)
     switch (command->operation_code) {
     case SX_OP_SET_OUTPUT:
         if (command->value == 0u) {
-            sx_force_output_off(app);
-            return true;
+            return sx_force_output_off(app);
         }
         level = app->last_nonzero_level_permille;
         if (level == 0u) {
             level = 1000u;
         }
-        if (app->output.set_level_permille == NULL) {
+        if ((app->output.set_level_permille == NULL) ||
+            !app->output.set_level_permille(app->output.context, level)) {
             return false;
         }
-        app->output.set_level_permille(app->output.context, level);
         app->output_state = 1u;
         app->output_level_permille = level;
         return true;
 
     case SX_OP_SET_LEVEL:
         if (command->value == 0u) {
-            sx_force_output_off(app);
-            return true;
+            return sx_force_output_off(app);
         }
-        if (app->output.set_level_permille == NULL) {
+        if ((app->output.set_level_permille == NULL) ||
+            !app->output.set_level_permille(app->output.context, command->value)) {
             return false;
         }
-        app->output.set_level_permille(app->output.context, command->value);
         app->last_nonzero_level_permille = command->value;
         app->output_state = 1u;
         app->output_level_permille = command->value;
@@ -336,8 +341,8 @@ sx_app_result_t sx_app_process_envelope(sx_app_core_t *app,
     }
 
     if (!sx_apply_command(app, &command)) {
-        sx_force_output_off(app);
-        return sx_result(app, SX_APP_RESULT_PARAMETER_INVALID, 0u);
+        (void)sx_force_output_off(app);
+        return sx_result(app, SX_APP_RESULT_EXECUTION_FAILED, 2u);
     }
     return sx_result(app, SX_APP_RESULT_SUCCESS, 1u);
 }
