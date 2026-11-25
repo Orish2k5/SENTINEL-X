@@ -1,0 +1,21 @@
+# STM32CubeIDE generated build output
+/Debug/
+/Release/
+/build/
+
+# Host-test build output
+/tests/.build/
+
+# Compiled firmware artifacts
+*.elf
+*.hex
+*.bin
+*.map
+*.list
+*.o
+*.a
+*.su
+
+# Temporary editor/backup files
+*.swp
+*~
